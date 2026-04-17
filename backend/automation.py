@@ -6,14 +6,15 @@ import urllib.parse
 import re
 
 # ─────────────────────────────────────────
-# Store search results temporarily
-# so user can pick which video to play
+# Store last search results so user can
+# pick by number after seeing YouTube page
 # ─────────────────────────────────────────
 _last_search_results = []
+_last_query = ""
 
 
 def execute_command(command: str):
-    global _last_search_results
+    global _last_search_results, _last_query
     command = command.lower().strip()
 
     # ─────────────────────────────────────────
@@ -41,31 +42,23 @@ def execute_command(command: str):
         return "Task Manager opened ✅"
 
     # ─────────────────────────────────────────
-    # 🎯 USER PICKS VIDEO NUMBER
+    # 🎯 USER PICKS VIDEO BY NUMBER
+    # This runs AFTER YouTube is already open
+    # User sees results on screen then picks
     # ─────────────────────────────────────────
-    # After search results show, user says:
+    # Supported:
     # "play 1" / "play 2" / "play 3"
-    # "first" / "second" / "third"
-    # "play first one" / "play second video"
     # "1" / "2" / "3"
+    # "first" / "second" / "third"
+    # "play first" / "play second"
 
     elif _last_search_results and (
         command.strip() in ["1", "2", "3", "4", "5"]
-        or "play 1" in command
-        or "play 2" in command
-        or "play 3" in command
-        or "play 4" in command
-        or "play 5" in command
-        or "first" in command
-        or "second" in command
-        or "third" in command
-        or "fourth" in command
-        or "fifth" in command
-        or "play first" in command
-        or "play second" in command
-        or "play third" in command
+        or any(f"play {n}" in command for n in ["1","2","3","4","5"])
+        or any(w in command for w in [
+            "first", "second", "third", "fourth", "fifth"
+        ])
     ):
-        # Figure out which number user wants
         index = _get_video_index(command)
 
         if index is not None and index < len(_last_search_results):
@@ -74,23 +67,32 @@ def execute_command(command: str):
                 f"https://www.youtube.com/watch?v={video['id']}"
                 f"&autoplay=1"
             )
+            # Open video in new tab — replaces or opens beside search
             webbrowser.open(video_url)
-            title = video['title']
+            title = video["title"]
+            # Clear results after playing
+            _last_search_results = []
             return f"▶️ Playing video {index + 1}: '{title}'"
+
         else:
+            total = len(_last_search_results)
             return (
-                f"❌ Only {len(_last_search_results)} videos found. "
-                f"Say 'play 1' to 'play {len(_last_search_results)}'"
+                f"❌ Only {total} videos available. "
+                f"Say 'play 1' to 'play {total}'"
             )
 
     # ─────────────────────────────────────────
-    # ▶️ YOUTUBE SEARCH + SHOW RESULTS
+    # ▶️ PLAY ON YOUTUBE
+    # Step 1: Open YouTube search page in browser
+    # Step 2: Silently fetch video list in background
+    # Step 3: User picks number → video plays
     # ─────────────────────────────────────────
-    # Commands:
+    # Supported commands:
     # "play kantara on youtube"
     # "play python tutorial on youtube"
-    # "youtube play mr beast"
-    # "play on youtube: lofi music"
+    # "play on youtube: mr beast"
+    # "youtube play lofi music"
+    # "play ipl highlights on youtube"
 
     elif (
         ("play" in command and "youtube" in command)
@@ -109,50 +111,62 @@ def execute_command(command: str):
             query = command.split("youtube play")[-1].strip()
 
         elif "play" in command and "on youtube" in command:
+            # "play kantara songs on youtube"
             after_play = command.split("play")[-1].strip()
             query = after_play.split("on youtube")[0].strip()
 
         elif "play" in command and "youtube" in command:
+            # "play kantara youtube"
             after_play = command.split("play")[-1].strip()
             query = after_play.replace("youtube", "").strip()
 
         # Clean filler words
-        filler_words = ["on", "the", "a", "an", "in", "at"]
-        query_words = [w for w in query.split() if w not in filler_words]
-        query = " ".join(query_words).strip()
+        filler = ["on", "the", "a", "an", "in", "at"]
+        query = " ".join(
+            [w for w in query.split() if w not in filler]
+        ).strip()
 
         if query:
-            # Fetch top 5 results and show to user
+            _last_query = query
+
+            # ✅ STEP 1 — Open YouTube search page in browser immediately
+            # User sees results right away on screen
+            search_url = (
+                f"https://www.youtube.com/results?search_query="
+                f"{query.replace(' ', '+')}"
+            )
+            webbrowser.open(search_url)
+
+            # ✅ STEP 2 — Silently fetch video list in background
             results = _get_youtube_results(query, count=5)
 
             if results:
-                # Save results so user can pick
                 _last_search_results = results
-
-                # Build response showing all options
-                response = f"🎬 Found {len(results)} videos for '{query}':\n\n"
-                for i, video in enumerate(results):
-                    response += f"{i + 1}. {video['title']}\n"
-                response += (
-                    "\n👉 Say 'play 1', 'play 2', 'play 3'... "
-                    "or 'first', 'second', 'third' to play"
+                return (
+                    f"🎬 YouTube opened with results for '{query}'\n"
+                    f"👀 See the results on screen\n\n"
+                    f"🎯 Now say which to play:\n"
+                    f"'play 1' · 'play 2' · 'play 3' · 'play 4' · 'play 5'\n"
+                    f"or: 'first' · 'second' · 'third'"
                 )
-                return response
             else:
-                # Fallback to search page
-                url = (
-                    f"https://www.youtube.com/results?search_query="
-                    f"{query.replace(' ', '+')}"
+                return (
+                    f"🎬 YouTube opened for '{query}'\n"
+                    f"👀 Pick any video manually from browser"
                 )
-                webbrowser.open(url)
-                return f"Opened YouTube search for '{query}' 🎬"
         else:
             webbrowser.open("https://www.youtube.com")
             return "YouTube opened ✅"
 
     # ─────────────────────────────────────────
-    # 🎬 YOUTUBE SEARCH ONLY (no play)
+    # 🎬 YOUTUBE SEARCH ONLY
     # ─────────────────────────────────────────
+    # Supported:
+    # "youtube search lofi"
+    # "search on youtube python"
+    # "search youtube for coding"
+    # "find on youtube funny videos"
+    # "open youtube"
 
     elif "youtube" in command:
         query = ""
@@ -215,15 +229,21 @@ def execute_command(command: str):
         else:
             folder_name = "NewFolder"
 
-        path = os.path.join(os.path.expanduser("~"), "Desktop", folder_name)
+        path = os.path.join(
+            os.path.expanduser("~"), "Desktop", folder_name
+        )
         os.makedirs(path, exist_ok=True)
         return f"Folder '{folder_name}' created on Desktop 📁"
 
     elif "create react app" in command:
         if "named" in command:
-            app_name = command.split("named")[-1].strip().replace(" ", "-")
+            app_name = (
+                command.split("named")[-1].strip().replace(" ", "-")
+            )
         elif "called" in command:
-            app_name = command.split("called")[-1].strip().replace(" ", "-")
+            app_name = (
+                command.split("called")[-1].strip().replace(" ", "-")
+            )
         else:
             app_name = "my-app"
 
@@ -237,9 +257,13 @@ def execute_command(command: str):
 
     elif "create python project" in command:
         if "named" in command:
-            project_name = command.split("named")[-1].strip().replace(" ", "_")
+            project_name = (
+                command.split("named")[-1].strip().replace(" ", "_")
+            )
         elif "called" in command:
-            project_name = command.split("called")[-1].strip().replace(" ", "_")
+            project_name = (
+                command.split("called")[-1].strip().replace(" ", "_")
+            )
         else:
             project_name = "my_python_project"
 
@@ -254,7 +278,10 @@ def execute_command(command: str):
             f.write(f"# {project_name}\n\nCreated by FlowForge AI 🚀")
 
         subprocess.Popen(f"code {project_path}", shell=True)
-        return f"Python project '{project_name}' created and opened in VS Code 🐍"
+        return (
+            f"Python project '{project_name}' "
+            f"created and opened in VS Code 🐍"
+        )
 
     # ─────────────────────────────────────────
     # ⚡ WORKFLOW COMMANDS
@@ -301,8 +328,8 @@ def execute_command(command: str):
 
 
 # ─────────────────────────────────────────
-# 🔧 HELPER — Get YouTube search results
-# Returns list of videos with title + id
+# 🔧 HELPER — Fetch top YouTube results
+# Returns list of {id, title}
 # ─────────────────────────────────────────
 
 def _get_youtube_results(query: str, count: int = 5):
@@ -332,26 +359,23 @@ def _get_youtube_results(query: str, count: int = 5):
 
         # Extract video titles
         video_titles = re.findall(
-            r'"title":\{"runs":\[\{"text":"([^"]+)"',
-            html
+            r'"title":\{"runs":\[\{"text":"([^"]+)"', html
         )
 
-        # Remove duplicates
+        # Build results list — remove duplicates
         seen_ids = []
         results = []
 
-        for i, vid in enumerate(video_ids):
+        for vid in video_ids:
             if vid not in seen_ids:
                 seen_ids.append(vid)
+                idx = len(seen_ids) - 1
                 title = (
-                    video_titles[len(seen_ids) - 1]
-                    if len(seen_ids) - 1 < len(video_titles)
+                    video_titles[idx]
+                    if idx < len(video_titles)
                     else f"Video {len(seen_ids)}"
                 )
-                results.append({
-                    "id": vid,
-                    "title": title
-                })
+                results.append({"id": vid, "title": title})
 
             if len(results) >= count:
                 break
@@ -363,28 +387,17 @@ def _get_youtube_results(query: str, count: int = 5):
 
 
 # ─────────────────────────────────────────
-# 🔧 HELPER — Convert word to index number
+# 🔧 HELPER — Convert word/number to index
 # "first" → 0, "play 2" → 1, "third" → 2
 # ─────────────────────────────────────────
 
-def _get_video_index(command: str) -> int:
-    # Word to number mapping
+def _get_video_index(command: str):
     word_map = {
-        "first":   0,
-        "1":       0,
-        "play 1":  0,
-        "second":  1,
-        "2":       1,
-        "play 2":  1,
-        "third":   2,
-        "3":       2,
-        "play 3":  2,
-        "fourth":  3,
-        "4":       3,
-        "play 4":  3,
-        "fifth":   4,
-        "5":       4,
-        "play 5":  4,
+        "play 1": 0, "first":  0, "1": 0,
+        "play 2": 1, "second": 1, "2": 1,
+        "play 3": 2, "third":  2, "3": 2,
+        "play 4": 3, "fourth": 3, "4": 3,
+        "play 5": 4, "fifth":  4, "5": 4,
     }
 
     for key, index in word_map.items():
