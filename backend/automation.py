@@ -516,24 +516,37 @@ def execute_command(command: str):
             _bring_window_to_front(["file explorer", "explorer", "desktop"])
             return _result(f"Folder '{folder_name}' created on Desktop.")
 
-        elif "create react app" in normalized_command:
-            app_name = "my-app"
+        elif "create react app" in normalized_command or "create react project" in normalized_command:
+            app_name = "my-react-app"
             named_match = re.search(
-                r"(?:named|called)\s+(.+)$",
+                r"(?:named|called)\s+([^\s].+?)(?:\s+(?:in|on|at|for)\b|$)",
                 raw_command,
                 flags=re.IGNORECASE,
             )
             if named_match:
-                app_name = named_match.group(1).strip().replace(" ", "-")
+                app_name = named_match.group(1).strip().replace(" ", "-").lower()
 
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            project_path = os.path.join(desktop, app_name)
+
+            # Use Vite (not create-react-app) — gives a complete project structure
+            # with src/, public/, vite.config.js, index.html, package.json, etc.
+            # Vite takes the project name as a positional arg, so custom names always work.
+            vite_cmd = (
+                f"npm create vite@latest {app_name} -- --template react"
+                f" && cd {app_name} && npm install"
+            )
             subprocess.Popen(
-                f"start cmd /k npx create-react-app {app_name}",
+                f'start cmd /k "{vite_cmd}"',
                 shell=True,
                 cwd=desktop,
             )
             _bring_window_to_front(["cmd", "command prompt", "terminal"])
-            return _result(f"Creating React app '{app_name}' on Desktop.")
+            return _result(
+                f"⚛️ Creating React app '{app_name}' on Desktop using Vite.\n"
+                f"📦 npm install will run automatically after scaffolding.\n"
+                f"▶️  When done, run: cd Desktop\\{app_name} && npm run dev"
+            )
 
         elif "create python project" in normalized_command:
             project_name = "my_python_project"
@@ -569,15 +582,22 @@ def execute_command(command: str):
                 f"Python project '{project_name}' created and opened in VS Code."
             )
 
-        elif any(
-            trigger in normalized_command
-            for trigger in [
-                "create ai project",
-                "create project for",
-                "build me",
-                "make me a",
-                "create a",
-            ]
+        elif (
+            # Explicit AI project triggers
+            any(
+                trigger in normalized_command
+                for trigger in [
+                    "create ai project",
+                    "create project for",
+                    "build me",
+                    "make me a",
+                    "make me an",
+                ]
+            )
+            # "create/build/make <anything> project"
+            or re.search(r"\b(create|build|make)\b.{0,60}\bproject\b", normalized_command)
+            # Broad catch-all: create/build/make followed by 2+ words (any description)
+            or re.search(r"^(create|build|make)\s+\S+\s+\S+", normalized_command)
         ):
             description, project_name = parse_create_command(raw_command)
             if description:

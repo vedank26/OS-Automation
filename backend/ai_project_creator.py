@@ -1,8 +1,7 @@
+import json
 import os
 import subprocess
 import time
-import requests
-import json
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -59,51 +58,22 @@ CRITICAL: Your response must START with {{ and END with }}. Nothing else."""
 
         
         print("🤖 AI is analyzing your project idea...")
-        
-        # Call Groq API
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
+
+        # Call Groq API via the official SDK
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
                 {
                     "role": "system",
-                    "content": "You are a JSON generator. You ONLY output valid JSON. Never output code directly. Never use markdown. Never add explanations."
+                    "content": "You are a JSON generator. You ONLY output valid JSON. Never output code directly. Never use markdown. Never add explanations.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ],
-            "temperature": 0.5,
-            "max_tokens": 8000,
-            "response_format": {"type": "json_object"}  # Force JSON output
-        }
-        
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            temperature=0.5,
+            max_tokens=8000,
         )
 
         ai_output = response.choices[0].message.content.strip()
-        
-        if response.status_code != 200:
-            return f"❌ API Error: {response.status_code} - {response.text}"
-        
-        result = response.json()
-        ai_output = result["choices"][0]["message"]["content"].strip()
         
         # Clean the response (remove markdown code blocks if present)
         if ai_output.startswith("```json"):
@@ -222,9 +192,32 @@ def parse_create_command(command: str):
     """
     command = command.lower().strip()
     
-    # Remove trigger words
-    for trigger in ["create ai project", "create project", "make me", "build me", "create"]:
-        command = command.replace(trigger, "", 1).strip()
+    # Remove trigger/filler words longest-first to avoid partial replacements
+    for trigger in [
+        "create ai project",
+        "create project for",
+        "create project",
+        "build project for",
+        "build project",
+        "make me an",
+        "make me a",
+        "make me",
+        "build me an",
+        "build me a",
+        "build me",
+        "make an",
+        "make a",
+        "create an",
+        "create a",
+        "build an",
+        "build a",
+        "create",
+        "build",
+        "make",
+    ]:
+        if command.startswith(trigger):
+            command = command[len(trigger):].strip()
+            break
     
     # Extract project name if specified
     project_name = None

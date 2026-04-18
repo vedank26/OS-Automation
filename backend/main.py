@@ -29,4 +29,6 @@ async def execute(cmd: Command):
     """
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, execute_command, cmd.text)
-    return {"result": result}
+    # execute_command already returns a dict shaped as {"result": "..."}
+    # (via the _result() helper), so return it directly — no extra wrapping.
+    return result
