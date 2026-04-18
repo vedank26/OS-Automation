@@ -84,9 +84,7 @@ def execute_command(command: str):
 
     # ─────────────────────────────────────────
     # ▶️ PLAY ON YOUTUBE
-    # Step 1: Open YouTube search page in browser
-    # Step 2: Silently fetch video list in background
-    # Step 3: User picks number → video plays
+    # Fetches top result and opens the video directly (no search page)
     # ─────────────────────────────────────────
     # Supported commands:
     # "play kantara on youtube"
@@ -130,30 +128,33 @@ def execute_command(command: str):
         if query:
             _last_query = query
 
-            # ✅ STEP 1 — Open YouTube search page in browser immediately
-            # User sees results right away on screen
-            search_url = (
-                f"https://www.youtube.com/results?search_query="
-                f"{query.replace(' ', '+')}"
-            )
-            webbrowser.open(search_url)
-
-            # ✅ STEP 2 — Silently fetch video list in background
+            # ── Fetch top results and open the #1 video directly ─────────
             results = _get_youtube_results(query, count=5)
 
             if results:
                 _last_search_results = results
+                # Open the top result directly with autoplay
+                top = results[0]
+                video_url = (
+                    f"https://www.youtube.com/watch?v={top['id']}"
+                    f"&autoplay=1"
+                )
+                webbrowser.open(video_url)
                 return (
-                    f"🎬 YouTube opened with results for '{query}'\n"
-                    f"👀 See the results on screen\n\n"
-                    f"🎯 Now say which to play:\n"
-                    f"'play 1' · 'play 2' · 'play 3' · 'play 4' · 'play 5'\n"
-                    f"or: 'first' · 'second' · 'third'"
+                    f"▶️ Playing: '{top['title']}'\n"
+                    f"🔎 Query: '{query}'\n\n"
+                    f"🎯 Want a different result? Say:\n"
+                    f"'play 2' · 'play 3' · 'play 4' · 'play 5'"
                 )
             else:
+                # Fallback: open search page if video scraping failed
+                search_url = (
+                    f"https://www.youtube.com/results?search_query="
+                    f"{query.replace(' ', '+')}"
+                )
+                webbrowser.open(search_url)
                 return (
-                    f"🎬 YouTube opened for '{query}'\n"
-                    f"👀 Pick any video manually from browser"
+                    f"🔎 Couldn't auto-play — opened YouTube search for '{query}'"
                 )
         else:
             webbrowser.open("https://www.youtube.com")
@@ -282,8 +283,21 @@ def execute_command(command: str):
         "create project for",
         "build me",
         "make me a",
-        "create a"
+        "create a",
+        "build ",
+        "make a "
     ]):
+        # ─────────────────────────────────────────
+        # 🤖 AI-POWERED PROJECT CREATION
+        # ─────────────────────────────────────────
+        # Supported commands:
+        # "create ai project for a snake game in python"
+        # "create project named todo-app for a task manager in react"
+        # "build me a calculator app"
+        # "build attendance tracker website using html css and javascript"
+        # "build to do list project using html and css"
+        # "make a weather dashboard in html css js"
+        
         # Extract description and optional name
         description, project_name = parse_create_command(command)
         
@@ -294,52 +308,7 @@ def execute_command(command: str):
         else:
             return (
                 "❌ Please specify what project to create.\n"
-                "Example: 'create ai project for a snake game in python'"
-            )
-
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        project_path = os.path.join(desktop, project_name)
-        os.makedirs(project_path, exist_ok=True)
-
-        with open(os.path.join(project_path, "main.py"), "w") as f:
-            f.write('# Main Python file\n\nprint("Hello World")\n')
-
-        with open(os.path.join(project_path, "README.md"), "w") as f:
-            f.write(f"# {project_name}\n\nCreated by FlowForge AI 🚀")
-
-        subprocess.Popen(f"code {project_path}", shell=True)
-        return (
-            f"Python project '{project_name}' "
-            f"created and opened in VS Code 🐍"
-        )
-
-    # ─────────────────────────────────────────
-    # 🤖 AI-POWERED PROJECT CREATION
-    # ─────────────────────────────────────────
-    # Supported commands:
-    # "create ai project for a snake game in python"
-    # "create project named todo-app for a task manager in react"
-    # "build me a calculator app"
-    # "make a weather dashboard in html css js"
-
-    elif any(trigger in command for trigger in [
-        "create ai project",
-        "create project for",
-        "build me",
-        "make me a",
-        "create a"
-    ]):
-        # Extract description and optional name
-        description, project_name = parse_create_command(command)
-        
-        if description:
-            # Call AI to create the project
-            result = create_ai_project(description, project_name)
-            return result
-        else:
-            return (
-                "❌ Please specify what project to create.\n"
-                "Example: 'create ai project for a snake game in python'"
+                "Example: 'build attendance tracker website using html css'"
             )
 
     # ─────────────────────────────────────────
