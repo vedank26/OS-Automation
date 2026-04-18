@@ -4,6 +4,7 @@ import webbrowser
 import urllib.request
 import urllib.parse
 import re
+from ai_project_creator import create_ai_project, parse_create_command
 
 # ─────────────────────────────────────────
 # Store last search results so user can
@@ -267,6 +268,35 @@ def execute_command(command: str):
         else:
             project_name = "my_python_project"
 
+    # ─────────────────────────────────────────
+    # 🤖 AI-POWERED PROJECT CREATION
+    # ─────────────────────────────────────────
+    # Supported commands:
+    # "create ai project for a snake game in python"
+    # "create project named todo-app for a task manager in react"
+    # "build me a calculator app"
+    # "make a weather dashboard in html css js"
+
+    elif any(trigger in command for trigger in [
+        "create ai project",
+        "create project for",
+        "build me",
+        "make me a",
+        "create a"
+    ]):
+        # Extract description and optional name
+        description, project_name = parse_create_command(command)
+        
+        if description:
+            # Call AI to create the project
+            result = create_ai_project(description, project_name)
+            return result
+        else:
+            return (
+                "❌ Please specify what project to create.\n"
+                "Example: 'create ai project for a snake game in python'"
+            )
+
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         project_path = os.path.join(desktop, project_name)
         os.makedirs(project_path, exist_ok=True)
@@ -282,6 +312,35 @@ def execute_command(command: str):
             f"Python project '{project_name}' "
             f"created and opened in VS Code 🐍"
         )
+
+    # ─────────────────────────────────────────
+    # 🤖 AI-POWERED PROJECT CREATION
+    # ─────────────────────────────────────────
+    # Supported commands:
+    # "create ai project for a snake game in python"
+    # "create project named todo-app for a task manager in react"
+    # "build me a calculator app"
+    # "make a weather dashboard in html css js"
+
+    elif any(trigger in command for trigger in [
+        "create ai project",
+        "create project for",
+        "build me",
+        "make me a",
+        "create a"
+    ]):
+        # Extract description and optional name
+        description, project_name = parse_create_command(command)
+        
+        if description:
+            # Call AI to create the project
+            result = create_ai_project(description, project_name)
+            return result
+        else:
+            return (
+                "❌ Please specify what project to create.\n"
+                "Example: 'create ai project for a snake game in python'"
+            )
 
     # ─────────────────────────────────────────
     # ⚡ WORKFLOW COMMANDS
