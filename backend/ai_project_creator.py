@@ -1,16 +1,13 @@
+import json
 import os
 import subprocess
 import time
-import requests
-import json
 from dotenv import load_dotenv
 from groq import Groq
 
 load_dotenv()
 
-# Configure Groq API (100% FREE!)
-# Get your free API key from: https://console.groq.com/keys
-api_key = os.getenv("GROQ_API_KEY") # Replace with your actual key
+api_key = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=api_key)
 
 
@@ -21,17 +18,9 @@ def create_ai_project(project_description: str, project_name: str = None):
     2. Creates all files and folders
     3. Writes AI-generated code
     4. Opens the project in VS Code
-    
-    Args:
-        project_description: What the user wants to build
-        project_name: Optional project name (auto-generated if not provided)
-    
-    Returns:
-        str: Status message
     """
-    
+
     try:
-        # Step 1: Generate project structure and code using AI
         prompt = f"""You are a project generator. Create a JSON response for: {project_description}
 
 Return ONLY this exact JSON structure (no extra text, no code blocks, no explanations):
@@ -57,135 +46,94 @@ Rules:
 
 CRITICAL: Your response must START with {{ and END with }}. Nothing else."""
 
-        
         print("🤖 AI is analyzing your project idea...")
-        
-        # Call Groq API
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
                 {
                     "role": "system",
-                    "content": "You are a JSON generator. You ONLY output valid JSON. Never output code directly. Never use markdown. Never add explanations."
+                    "content": "You are a JSON generator. You ONLY output valid JSON. Never output code directly. Never use markdown. Never add explanations.",
                 },
                 {
                     "role": "user",
-                    "content": prompt
-                }
+                    "content": prompt,
+                },
             ],
-            "temperature": 0.5,
-            "max_tokens": 8000,
-            "response_format": {"type": "json_object"}  # Force JSON output
-        }
-        
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            temperature=0.5,
+            max_tokens=8000,
+            response_format={"type": "json_object"},
         )
 
         ai_output = response.choices[0].message.content.strip()
-        
-        if response.status_code != 200:
-            return f"❌ API Error: {response.status_code} - {response.text}"
-        
-        result = response.json()
-        ai_output = result["choices"][0]["message"]["content"].strip()
-        
-        # Clean the response (remove markdown code blocks if present)
+
+        # Clean markdown code blocks if present
         if ai_output.startswith("```json"):
             ai_output = ai_output.replace("```json", "").replace("```", "").strip()
         elif ai_output.startswith("```"):
             ai_output = ai_output.replace("```", "").strip()
-        
-        # Additional cleanup - find JSON boundaries
+
+        # Find JSON boundaries
         if "{" in ai_output and "}" in ai_output:
             start = ai_output.find("{")
             end = ai_output.rfind("}") + 1
             ai_output = ai_output[start:end]
-        
+
         print(f"📄 Received {len(ai_output)} characters from AI")
-        
-        # Parse JSON response
+
         project_data = json.loads(ai_output)
-        
-        # Validate structure
+
         if "structure" not in project_data or not project_data["structure"]:
             return "❌ AI didn't generate any files. Try again with a more specific description."
-        
-        # Use provided project name or AI-generated one
-        final_project_name = project_name if project_name else project_data.get("project_name", "my_project")
-        
-        # Clean project name
+
+        final_project_name = (
+            project_name if project_name else project_data.get("project_name", "my_project")
+        )
         final_project_name = final_project_name.replace(" ", "_").lower()
-        
-        # Step 2: Create project directory
+
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         project_path = os.path.join(desktop, final_project_name)
-        
-        # Create main project folder
         os.makedirs(project_path, exist_ok=True)
         print(f"📁 Created project folder: {final_project_name}")
-        
-        # Step 3: Create all files and directories from AI structure
+
         created_files = []
         structure = project_data.get("structure", {})
-        
+
         for file_path, content in structure.items():
-            # Skip empty content
             if not content or content.strip() == "":
                 continue
-                
-            # Handle nested directories (e.g., "src/App.js")
+
             full_path = os.path.join(project_path, file_path)
-            
-            # Create parent directories if needed
             parent_dir = os.path.dirname(full_path)
             if parent_dir and parent_dir != project_path:
                 os.makedirs(parent_dir, exist_ok=True)
-            
-            # Write the file
+
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            
+
             created_files.append(file_path)
             print(f"   ✅ Created: {file_path}")
-        
+
         if not created_files:
             return "❌ No files were created. AI response might be invalid."
-        
-        # Step 4: Open VS Code with the project
+
+        # Open project in VS Code
         time.sleep(0.5)
         subprocess.Popen(f'code "{project_path}"', shell=True)
-        
-        # Bring VS Code to front (Windows-specific)
+
         time.sleep(1)
         try:
             import pygetwindow as gw
             windows = gw.getWindowsWithTitle("Visual Studio Code")
             if windows:
                 windows[0].activate()
-        except:
+        except Exception:
             pass
-        
-        # Build success message
+
         files_summary = ", ".join(created_files[:5])
         if len(created_files) > 5:
             files_summary += f" + {len(created_files) - 5} more"
-        
+
         return (
             f"✅ AI Project Created: '{final_project_name}'\n"
             f"📂 Type: {project_data.get('project_type', 'N/A')}\n"
@@ -193,55 +141,92 @@ CRITICAL: Your response must START with {{ and END with }}. Nothing else."""
             f"💻 Opened in VS Code\n"
             f"📍 Location: Desktop/{final_project_name}"
         )
-    
+
     except json.JSONDecodeError as e:
-        # Save the raw output to a file for debugging
         error_file = os.path.join(os.path.expanduser("~"), "Desktop", "ai_error_output.txt")
         with open(error_file, "w", encoding="utf-8") as f:
             f.write(ai_output)
-        
         return (
             f"❌ AI response parsing failed.\n"
             f"Error: {str(e)}\n"
             f"Raw output saved to: Desktop/ai_error_output.txt\n"
-            f"Try the command again - sometimes the AI needs a retry."
+            f"Try the command again."
         )
-    
+
     except Exception as e:
         return f"❌ Project creation failed: {str(e)}"
 
 
 def parse_create_command(command: str):
     """
-    Extracts project description and optional name from command.
-    
+    Extracts project description and optional name from a natural language command.
+
     Examples:
-    - "create a snake game in python" -> ("snake game in python", None)
-    - "create project named todo-app for a task manager" -> ("task manager", "todo-app")
-    - "make me a calculator in react" -> ("calculator in react", None)
+    - "create calculator project using python"     -> ("calculator using python", None)
+    - "create project of calculator using python"  -> ("calculator using python", None)
+    - "build attendance tracker using html css js" -> ("attendance tracker using html css js", None)
+    - "make a snake game in python"                -> ("snake game in python", None)
+    - "create project named todo-app for task mgr" -> ("task manager", "todo-app")
+    - "build me a calculator"                      -> ("calculator", None)
     """
     command = command.lower().strip()
-    
-    # Remove trigger words
-    for trigger in ["create ai project", "create project", "make me", "build me", "create"]:
-        command = command.replace(trigger, "", 1).strip()
-    
-    # Extract project name if specified
+
+    # ── Step 1: Remove trigger words longest-first ─────────────────────────
+    for trigger in [
+        "create ai project",
+        "create project for",
+        "create project of",        # ✅ "create project of calculator"
+        "create project named",
+        "create project called",
+        "create project",
+        "build project for",
+        "build project of",
+        "build project",
+        "make project for",
+        "make project of",
+        "make project",
+        "make me an",
+        "make me a",
+        "make me",
+        "build me an",
+        "build me a",
+        "build me",
+        "make an",
+        "make a",
+        "create an",
+        "create a",
+        "build an",
+        "build a",
+        "create",
+        "build",
+        "make",
+    ]:
+        if command.startswith(trigger):
+            command = command[len(trigger):].strip()
+            break
+
+    # ── Step 2: Strip leftover connector words at the start ────────────────
+    # Handles: "of calculator", "for a snake game", "me a todo app"
+    for connector in ["of ", "for a ", "for an ", "for ", "me a ", "me an ", "me "]:
+        if command.startswith(connector):
+            command = command[len(connector):].strip()
+            break
+
+    # ── Step 3: Extract optional project name ──────────────────────────────
     project_name = None
     description = command
-    
+
     if "named" in command:
         parts = command.split("named", 1)
         description = parts[0].strip()
         if len(parts) > 1:
-            # Get everything after "named" until "for" or end of string
             name_part = parts[1].strip()
             if "for" in name_part:
                 project_name = name_part.split("for")[0].strip()
                 description = name_part.split("for")[1].strip() + " " + description
             else:
                 project_name = name_part
-    
+
     elif "called" in command:
         parts = command.split("called", 1)
         description = parts[0].strip()
@@ -252,14 +237,14 @@ def parse_create_command(command: str):
                 description = name_part.split("for")[1].strip() + " " + description
             else:
                 project_name = name_part
-    
-    # Clean up project name (remove spaces, make it filesystem-friendly)
+
+    # ── Step 4: Clean up ───────────────────────────────────────────────────
     if project_name:
         project_name = project_name.strip().replace(" ", "-")
-    
-    # Clean up description
+
     description = description.strip()
-    if description.startswith("for "):
-        description = description[4:].strip()
-    
+    for prefix in ["for ", "of "]:
+        if description.startswith(prefix):
+            description = description[len(prefix):].strip()
+
     return description, project_name

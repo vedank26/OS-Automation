@@ -13,12 +13,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class Command(BaseModel):
     text: str
+
 
 @app.get("/")
 def home():
     return {"message": "FlowForge AI Backend is running ✅"}
+
 
 @app.post("/execute")
 async def execute(cmd: Command):
@@ -26,7 +29,11 @@ async def execute(cmd: Command):
     Run execute_command in a thread pool so long-running operations
     (e.g. npm install during React project creation) don't block the
     event loop or time out the HTTP connection.
+
+    execute_command already returns a dict shaped as {"result": "..."}
+    or {"result": "...", "options": [...]} via the _result() helper,
+    so return it directly — no extra wrapping needed.
     """
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, execute_command, cmd.text)
-    return {"result": result}
+    return result
