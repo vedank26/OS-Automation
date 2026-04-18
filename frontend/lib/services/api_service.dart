@@ -16,20 +16,31 @@ class ApiService {
     }
   }
 
-  /// POSTs a command and returns the result string.
-  static Future<String> sendCommand(String text) async {
+  static Future<Map<String, dynamic>> sendCommand(String text) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/execute'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'text': text}),
-          )
-          .timeout(const Duration(seconds: 15));
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return (data['result'] as String?) ?? 'No response';
+      final response = await http.post(
+        Uri.parse("$baseUrl/execute"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"text": text}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "result": data["result"]?.toString() ?? "No response",
+          "options": data["options"] ?? [],
+        };
+      } else {
+        return {
+          "result": "Server error: ${response.statusCode}",
+          "options": [],
+        };
+      }
     } catch (e) {
-      return 'Error: Could not connect to backend ($e)';
+      return {
+        "result": "Error: ${e.toString()}",
+        "options": [],
+      };
     }
   }
 }

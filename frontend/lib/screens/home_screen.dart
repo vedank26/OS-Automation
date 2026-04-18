@@ -218,13 +218,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _addLog(LogType.cmd, '\$ $cmd');
     _addLog(LogType.sys, 'Executing command...');
 
-    final result = await ApiService.sendCommand(cmd);
+    final response = await ApiService.sendCommand(cmd);
+    
+    String result = response["result"] ?? "No response";
+    List options = response["options"] ?? [];
 
     final isError = result.toLowerCase().contains('not recognized') ||
         result.toLowerCase().contains('error') ||
         result.toLowerCase().startsWith('error:');
 
     _addLog(isError ? LogType.error : LogType.success, result);
+
+    if (options.isNotEmpty) {
+      for (int i = 0; i < options.length; i++) {
+        _addLog(LogType.sys, '  ${i + 1}. ${options[i]}');
+      }
+      _addLog(LogType.sys, "👉 Say 'play 1', 'play 2'... to play");
+    }
 
     setState(() => _isProcessing = false);
     _focusNode.requestFocus();

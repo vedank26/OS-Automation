@@ -164,35 +164,31 @@ def extract_youtube_query(command: str):
 
 
 def _extract_youtube_play_query(raw_command: str):
-    """
-    Extract the search query from a YouTube play command.
-    Supports patterns like:
-      - "play X on youtube"
-      - "play X in youtube"
-      - "play X youtube"
-      - "find on youtube X"       ← Point 4 (merged from Aditya)
-      - "search youtube for X"    ← Point 5 (merged from Aditya)
-    After extraction, filler words are stripped.  ← Point 3 (merged from Aditya)
-    """
-    patterns = [
-        r"play\s+(.+?)\s+on youtube",
-        r"play\s+(.+?)\s+in youtube",
-        r"play\s+(.+?)\s+youtube",
-        r"find\s+on\s+youtube\s+(.+)",       # Point 4
-        r"search\s+youtube\s+for\s+(.+)",    # Point 5
+    query = raw_command.lower()
+    
+    noise_phrases = [
+        "on youtube",
+        "in youtube", 
+        "on the youtube",
+        "youtube search",
+        "search youtube",
+        "search on youtube",
+        "find on youtube",
+        "play on youtube",
+        "play in youtube",
+        "youtube play",
+        "on yt",
+        "in yt",
     ]
 
-    for pattern in patterns:
-        match = re.search(pattern, raw_command, flags=re.IGNORECASE)
-        if match:
-            query = match.group(1).strip()
-            # Point 3 — strip filler words
-            query = " ".join(
-                w for w in query.split() if w.lower() not in FILLER_WORDS
-            )
-            return query
+    for phrase in noise_phrases:
+        query = query.replace(phrase, "").strip()
 
-    return None
+    if query.startswith("play "):
+        query = query[5:].strip()
+
+    query = " ".join(query.split()).strip()
+    return query if query else None
 
 
 def execute_command(command: str):
@@ -283,25 +279,43 @@ def execute_command(command: str):
             _bring_window_to_front(["youtube", "edge", "chrome"])
             return _result("YouTube opened.")
 
-        elif "search" in normalized_command:
-            query = re.sub(
-                r"^.*search",
-                "",
-                raw_command,
-                flags=re.IGNORECASE,
-            ).strip()
+        elif "search" in normalized_command and "youtube" not in normalized_command:
+            query = raw_command.lower().replace("search", "").strip()
+            
+            noise_phrases = [
+                "on chrome",
+                "on google", 
+                "in chrome",
+                "in google",
+                "in browser",
+                "on browser",
+                "using chrome",
+                "using google",
+                "on the internet",
+                "on internet",
+                "on web",
+                "on the web",
+            ]
+            
+            for phrase in noise_phrases:
+                if query.endswith(phrase):
+                    query = query.replace(phrase, "").strip()
+                query = query.replace(phrase, "").strip()
+            
+            query = " ".join(query.split()).strip()
+            
             if query:
                 url = (
-                    "https://www.google.com/search?q="
+                    f"https://www.google.com/search?q="
                     f"{quote_plus(query)}"
                 )
                 webbrowser.open(url)
-                _bring_window_to_front(["edge", "chrome", "google"])
-                return _result(f"Searching Google for '{query}'.")
-
-            webbrowser.open("https://www.google.com")
-            _bring_window_to_front(["edge", "chrome", "google"])
-            return _result("Google opened.")
+                _bring_window_to_front(["chrome", "edge", "google"])
+                return _result(f"Searching Google for '{query}' \U0001f50d")
+            else:
+                webbrowser.open("https://www.google.com")
+                _bring_window_to_front(["chrome", "edge"])
+                return _result("Google opened \u2705")
 
         elif "screenshot" in normalized_command or "take screenshot" in normalized_command:
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
