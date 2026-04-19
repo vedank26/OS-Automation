@@ -227,14 +227,11 @@ def execute_command(command: str):
         raw_command = command.strip()
         normalized_command = raw_command.lower()
 
-        print(f"DEBUG normalized: '{normalized_command}'")  # ADD THIS
-        print(f"DEBUG has youtube: {'youtube' in normalized_command}")  # ADD THIS
-
         if not normalized_command:
             return _result("No command provided.")
 
         # ─────────────────────────────────────────
-        # 🖥️ APPS
+        # 🖥️ APPS — must be FIRST
         # ─────────────────────────────────────────
 
         if "open vscode" in normalized_command:
@@ -266,36 +263,79 @@ def execute_command(command: str):
         # 🎯 VIDEO SELECTION (after YouTube search)
         # ─────────────────────────────────────────
 
-        elif _get_video_index(normalized_command) is not None:
+        elif _get_video_index(normalized_command) is not None and LAST_RESULTS:
             index = _get_video_index(normalized_command)
             return play_video(index)
 
-        # Add this BEFORE the "youtube" elif block
-        elif normalized_command.startswith("play ") and "youtube" not in normalized_command and not _is_project_command(normalized_command):
-    # Check if it's a number selection first
+        # ─────────────────────────────────────────
+        # ▶️ YOUTUBE SEARCH
+        # ─────────────────────────────────────────
+
+        elif "youtube" in normalized_command or "yt" in normalized_command:
+            query = _extract_youtube_play_query(raw_command)
+            if query:
+                try:
+                    results = search_youtube(query)
+                except requests.RequestException as exc:
+                    LAST_RESULTS = []
+                    return _result(f"YouTube API request failed: {exc}")
+                except RuntimeError as exc:
+                    LAST_RESULTS = []
+                    return _result(f"YouTube search is not available: {exc}")
+                except Exception as exc:
+                    LAST_RESULTS = []
+                    return _result(f"Failed to search YouTube: {exc}")
+
+                if not results:
+                    LAST_RESULTS = []
+                    return _result("No results found")
+
+                LAST_RESULTS = results
+                save_last_results(results)
+                return {
+                    "result": f"YouTube results for '{query}'. Say which to play.",
+                    "options": [result["title"] for result in results],
+                }
+
+            webbrowser.open("https://www.youtube.com")
+            _bring_window_to_front(["youtube", "edge", "chrome"])
+            return _result("YouTube opened.")
+
+        # ─────────────────────────────────────────
+        # 🎵 PLAY without youtube keyword
+        # ─────────────────────────────────────────
+
+        elif normalized_command.startswith("play ") and not _is_project_command(normalized_command):
+            # Try number selection first
             try:
                 index = int(normalized_command.split()[1]) - 1
-                return play_video(index)
+                if LAST_RESULTS:
+                    return play_video(index)
             except (ValueError, IndexError):
-        # Not a number — treat as YouTube search
-                query = normalized_command[5:].strip()  # remove "play "
-                query = " ".join(w for w in query.split() if w.lower() not in FILLER_WORDS)
-                if query:
-                    try:
-                        results = search_youtube(query)
-                    except Exception as exc:
-                        LAST_RESULTS = []
-                        return _result(f"YouTube search failed: {exc}")
+                pass
 
-                    if not results:
-                        LAST_RESULTS = []
-                        return _result("No results found")
+            # Treat as YouTube search
+            query = normalized_command[5:].strip()
+            query = " ".join(w for w in query.split() if w.lower() not in FILLER_WORDS)
+            if query:
+                try:
+                    results = search_youtube(query)
+                except Exception as exc:
+                    LAST_RESULTS = []
+                    return _result(f"YouTube search failed: {exc}")
 
-                    LAST_RESULTS = results
-                    return {
-                        "result": f"YouTube results for '{query}'. Say which to play.",
-                        "options": [result["title"] for result in results],
-                    }
+                if not results:
+                    LAST_RESULTS = []
+                    return _result("No results found")
+
+                LAST_RESULTS = results
+                save_last_results(results)
+                return {
+                    "result": f"YouTube results for '{query}'. Say which to play.",
+                    "options": [result["title"] for result in results],
+                }
+            return _result("Please specify a song name.")
+
         elif re.fullmatch(r"open\s+\d+", normalized_command):
             try:
                 index = int(normalized_command.split()[1]) - 1
@@ -305,8 +345,6 @@ def execute_command(command: str):
 
         # ─────────────────────────────────────────
         # 📁 FOLDER CREATION
-        # Must be before AI project block to avoid
-        # "create folder" being caught as a project
         # ─────────────────────────────────────────
 
         elif "create folder" in normalized_command:
@@ -316,7 +354,6 @@ def execute_command(command: str):
             )
             if named_match:
                 folder_name = named_match.group(1).strip()
-
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
             path = os.path.join(desktop, folder_name)
             os.makedirs(path, exist_ok=True)
@@ -325,8 +362,7 @@ def execute_command(command: str):
             return _result(f"Folder '{folder_name}' created on Desktop.")
 
         # ─────────────────────────────────────────
-        # ⚛️ REACT PROJECT — Uses Vite (modern)
-        # Must be before AI project block
+        # ⚛️ REACT PROJECT
         # ─────────────────────────────────────────
 
         elif (
@@ -340,7 +376,6 @@ def execute_command(command: str):
             )
             if named_match:
                 app_name = named_match.group(1).strip().replace(" ", "-").lower()
-
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
             vite_cmd = (
                 f"npm create vite@latest {app_name} -- --template react"
@@ -355,9 +390,7 @@ def execute_command(command: str):
             )
 
         # ─────────────────────────────────────────
-        # 🐍 PYTHON PROJECT (bare scaffold)
-        # Only for "create python project" explicitly
-        # All other python project commands go to AI
+        # 🐍 PYTHON PROJECT
         # ─────────────────────────────────────────
 
         elif "create python project" in normalized_command and "using" not in normalized_command and "for" not in normalized_command:
@@ -367,59 +400,35 @@ def execute_command(command: str):
             )
             if named_match:
                 project_name = named_match.group(1).strip().replace(" ", "_")
-
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
             project_path = os.path.join(desktop, project_name)
             os.makedirs(project_path, exist_ok=True)
-
             with open(os.path.join(project_path, "main.py"), "w", encoding="utf-8") as f:
                 f.write('# Main Python file\n\nprint("Hello World")\n')
-
             with open(os.path.join(project_path, "README.md"), "w", encoding="utf-8") as f:
                 f.write(f"# {project_name}\n\nCreated by FlowForge AI")
-
             subprocess.Popen(f'code "{project_path}"', shell=True)
             _bring_window_to_front(["visual studio code", "vscode"])
             return _result(f"Python project '{project_name}' created and opened in VS Code.")
 
         # ─────────────────────────────────────────
         # 🤖 AI PROJECT CREATION
-        #
-        # ⚠️  THIS BLOCK IS INTENTIONALLY PLACED
-        #     BEFORE YouTube and Search blocks.
-        #
-        # Commands like:
-        #   "create calculator project using python"
-        #   "create project of calculator using python"
-        #   "build attendance tracker using html css"
-        #   "make snake game in python"
-        #   "build todo app"
-        #
-        # Previously these leaked into YouTube because
-        # _is_project_command() wasn't being checked.
-        # Now we check it first — if it's a project
-        # command it NEVER reaches YouTube or search.
         # ─────────────────────────────────────────
 
         elif _is_project_command(normalized_command):
             description, project_name = parse_create_command(raw_command)
             if description:
                 creation_result = create_ai_project(description, project_name)
-                
-                # Check for successful creation, then auto-run it
                 if "✅ AI Project Created" in creation_result:
                     try:
-                        # Extract project name from the success message
                         loc_line = [line for line in creation_result.split('\n') if "Location: Desktop/" in line]
                         if loc_line:
                             folder_name = loc_line[0].split("Desktop/")[1].strip()
-                            # Automatically run the newly created project
                             run_result = execute_command(f"run {folder_name}")
                             if isinstance(run_result, dict) and "result" in run_result:
                                 creation_result += "\n\n" + run_result["result"]
                     except Exception:
                         pass
-                        
                 return _result(creation_result)
             return _result(
                 "Please specify what to build.\n"
@@ -430,6 +439,7 @@ def execute_command(command: str):
         # ─────────────────────────────────────────
         # 🚀 RUN PROJECT
         # ─────────────────────────────────────────
+
         elif (
             any(phrase in normalized_command for phrase in [
                 "run project", "run the project", "execute project", "start project",
@@ -438,32 +448,29 @@ def execute_command(command: str):
                 "launch project", "launch the project", "launch app", "run the app",
                 "start my project", "run latest project"
             ])
-            or normalized_command.startswith("open ")
             or normalized_command.startswith("run ")
             or normalized_command.startswith("start ")
         ):
+            # ✅ REMOVED "open " from here — open chrome/notepad etc handled above
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-
             try:
                 folders = [
                     f for f in os.listdir(desktop)
                     if os.path.isdir(os.path.join(desktop, f))
                 ]
-                
                 if not folders:
                     return _result("❌ No projects found on Desktop")
 
                 latest_project = None
                 project_name = None
                 target_requested = False
-                
-                # Check for specific project name, e.g. "open snake game"
+
                 generic_run = any(p == normalized_command.strip() for p in [
                     "run project", "start project", "run app", "open project", "run my project"
                 ])
-                
+
                 if not generic_run:
-                    target_name = re.sub(r'^(open|run|start|launch|execute)\s+', '', normalized_command)
+                    target_name = re.sub(r'^(run|start|launch|execute)\s+', '', normalized_command)
                     target_name = target_name.replace("project", "").replace("app", "").replace("game", "").strip()
                     if target_name:
                         target_requested = True
@@ -479,7 +486,6 @@ def execute_command(command: str):
                 if not latest_project:
                     if target_requested:
                         return _result(f"❌ Could not find a project matching '{target_name}' on Desktop.")
-                        
                     folders.sort(
                         key=lambda f: os.path.getctime(os.path.join(desktop, f)),
                         reverse=True
@@ -489,23 +495,11 @@ def execute_command(command: str):
 
                 files_in_project = os.listdir(latest_project)
 
-                # ─────────────────────────────────────────
-                # React / Vite project
-                # ─────────────────────────────────────────
                 if "package.json" in files_in_project:
-                    
-                    # Check if it's Vite/React
-                    src_exists = os.path.exists(
-                        os.path.join(latest_project, "src")
-                    )
-                    
+                    src_exists = os.path.exists(os.path.join(latest_project, "src"))
                     if src_exists:
-                        # Detect CRA vs Vite by reading package.json
-                        package_json_path = os.path.join(
-                            latest_project, "package.json"
-                        )
-                        run_script = "start"  # default CRA
-
+                        package_json_path = os.path.join(latest_project, "package.json")
+                        run_script = "start"
                         try:
                             with open(package_json_path, "r") as f:
                                 pkg = json.load(f)
@@ -516,7 +510,6 @@ def execute_command(command: str):
                                 run_script = "start"
                         except Exception:
                             run_script = "start"
-
                         run_cmd = (
                             f'cd /d "{latest_project}" '
                             f'&& echo Installing dependencies... '
@@ -524,56 +517,31 @@ def execute_command(command: str):
                             f'&& echo Starting app... '
                             f'&& npm run {run_script}'
                         )
-                        subprocess.Popen(
-                            f'start cmd /k "{run_cmd}"',
-                            shell=True
-                        )
+                        subprocess.Popen(f'start cmd /k "{run_cmd}"', shell=True)
                         _bring_window_to_front(["cmd", "command prompt"])
-                        
                         port = "5173" if run_script == "dev" else "3000"
                         return _result(
                             f"🚀 Running '{project_name}'\n"
                             f"📦 Installing dependencies...\n"
                             f"🌐 Will open on http://localhost:{port}"
                         )
-
                     else:
-                        # Pure Node.js project
                         run_cmd = (
                             f'cd /d "{latest_project}" '
                             f'&& npm install '
                             f'&& node index.js'
                         )
-                        subprocess.Popen(
-                            f'start cmd /k "{run_cmd}"',
-                            shell=True
-                        )
+                        subprocess.Popen(f'start cmd /k "{run_cmd}"', shell=True)
                         _bring_window_to_front(["cmd", "command prompt"])
-                        return _result(
-                            f"🚀 Running '{project_name}' — Node.js app"
-                        )
+                        return _result(f"🚀 Running '{project_name}' — Node.js app")
 
-                # ─────────────────────────────────────────
-                # Python project — AUTO INSTALL DEPS
-                # ─────────────────────────────────────────
                 elif "main.py" in files_in_project:
-                    
-                    # Read main.py to find imports
                     main_py_path = os.path.join(latest_project, "main.py")
                     imports_to_install = []
-                    
                     try:
                         with open(main_py_path, "r") as f:
                             content = f.read()
-                        
-                        # Find all import statements
-                        import_lines = re.findall(
-                            r'^(?:import|from)\s+(\w+)', 
-                            content, 
-                            re.MULTILINE
-                        )
-                        
-                        # Standard library modules — skip these
+                        import_lines = re.findall(r'^(?:import|from)\s+(\w+)', content, re.MULTILINE)
                         stdlib_modules = {
                             "os", "sys", "re", "time", "math", "random",
                             "json", "datetime", "pathlib", "collections",
@@ -585,39 +553,23 @@ def execute_command(command: str):
                             "typing", "enum", "dataclasses", "contextlib",
                             "warnings", "traceback", "pprint", "textwrap"
                         }
-                        
-                        # Third party modules that need pip install
                         for module in import_lines:
                             if module not in stdlib_modules:
                                 imports_to_install.append(module)
-                                
                     except Exception:
                         pass
-                    
-                    # Build the run command
                     if imports_to_install:
-                        # Install all detected packages first
                         install_list = " ".join(imports_to_install)
                         run_cmd = (
                             f'cd /d "{latest_project}" '
-                            f'&& echo Installing dependencies: {install_list}... '
                             f'&& pip install {install_list} '
-                            f'&& echo Running project... '
                             f'&& python main.py'
                         )
                         dep_msg = f"📦 Installing: {install_list}"
                     else:
-                        run_cmd = (
-                            f'cd /d "{latest_project}" '
-                            f'&& echo Running project... '
-                            f'&& python main.py'
-                        )
+                        run_cmd = f'cd /d "{latest_project}" && python main.py'
                         dep_msg = "▶️ Running directly"
-                    
-                    subprocess.Popen(
-                        f'start cmd /k "{run_cmd}"',
-                        shell=True
-                    )
+                    subprocess.Popen(f'start cmd /k "{run_cmd}"', shell=True)
                     _bring_window_to_front(["cmd", "command prompt"])
                     return _result(
                         f"🐍 Running '{project_name}'\n"
@@ -625,130 +577,46 @@ def execute_command(command: str):
                         f"📺 Check the terminal window for output"
                     )
 
-                # ─────────────────────────────────────────
-                # Flask project
-                # ─────────────────────────────────────────
                 elif "app.py" in files_in_project:
-                    run_cmd = (
-                        f'cd /d "{latest_project}" '
-                        f'&& pip install flask '
-                        f'&& python app.py'
-                    )
-                    subprocess.Popen(
-                        f'start cmd /k "{run_cmd}"',
-                        shell=True
-                    )
+                    run_cmd = f'cd /d "{latest_project}" && pip install flask && python app.py'
+                    subprocess.Popen(f'start cmd /k "{run_cmd}"', shell=True)
                     _bring_window_to_front(["cmd", "command prompt"])
                     return _result(
                         f"🌐 Running '{project_name}'\n"
-                        f"📦 Installing Flask...\n"
                         f"🌐 Will open on http://localhost:5000"
                     )
 
-                # ─────────────────────────────────────────
-                # Django project
-                # ─────────────────────────────────────────
                 elif "manage.py" in files_in_project:
-                    run_cmd = (
-                        f'cd /d "{latest_project}" '
-                        f'&& pip install django '
-                        f'&& python manage.py runserver'
-                    )
-                    subprocess.Popen(
-                        f'start cmd /k "{run_cmd}"',
-                        shell=True
-                    )
+                    run_cmd = f'cd /d "{latest_project}" && pip install django && python manage.py runserver'
+                    subprocess.Popen(f'start cmd /k "{run_cmd}"', shell=True)
                     _bring_window_to_front(["cmd", "command prompt"])
                     return _result(
                         f"🌐 Running '{project_name}'\n"
                         f"🌐 Will open on http://localhost:8000"
                     )
 
-                # ─────────────────────────────────────────
-                # HTML project
-                # ─────────────────────────────────────────
                 elif "index.html" in files_in_project:
-                    index_file = os.path.join(
-                        latest_project, "index.html"
-                    )
+                    index_file = os.path.join(latest_project, "index.html")
                     webbrowser.open(f"file:///{index_file}")
-                    _bring_window_to_front([
-                        "chrome", "edge", "firefox"
-                    ])
-                    return _result(
-                        f"🌐 Opened '{project_name}' in browser ✅"
-                    )
+                    _bring_window_to_front(["chrome", "edge", "firefox"])
+                    return _result(f"🌐 Opened '{project_name}' in browser ✅")
 
-                # ─────────────────────────────────────────
-                # Unknown — open terminal in project folder
-                # ─────────────────────────────────────────
                 else:
                     subprocess.Popen(
-                        f'start cmd /k "cd /d "{latest_project}" '
-                        f'&& echo Project folder opened. Run manually."',
+                        f'start cmd /k "cd /d "{latest_project}" && echo Project folder opened."',
                         shell=True
                     )
-                    return _result(
-                        f"📂 Opened terminal for '{project_name}'"
-                    )
+                    return _result(f"📂 Opened terminal for '{project_name}'")
 
             except Exception as e:
                 return _result(f"❌ Could not run project: {str(e)}")
 
         # ─────────────────────────────────────────
-        # ▶️ YOUTUBE
-        # Only reached if NOT a project command
-        # ─────────────────────────────────────────
-
-        elif "youtube" in normalized_command or "yt" in normalized_command:
-            query = _extract_youtube_play_query(raw_command)
-            print(f"DEBUG query value: '{query}'")        # ADD THIS
-            print(f"DEBUG query is None: {query is None}") # ADD THIS
-            print(f"DEBUG query bool: {bool(query)}")      # ADD THIS
-            if query:
-                print("DEBUG entering search block")  # ADD THIS
-                try:
-                    print("DEBUG calling search_youtube")  # ADD THIS
-                    results = search_youtube(query)
-                    print(f"DEBUG search results: {results}")
-                except requests.RequestException as exc:
-                    LAST_RESULTS = []
-                    print(f"DEBUG RequestException: {exc}")
-                    return _result(f"YouTube API request failed: {exc}")
-                except RuntimeError as exc:
-                    LAST_RESULTS = []
-                    print(f"DEBUG RuntimeError: {exc}")
-                    return _result(f"YouTube search is not available: {exc}")
-                except Exception as exc:
-                    LAST_RESULTS = []
-                    print(f"DEBUG Exception type: {type(exc)}")  # ADD THIS
-                    print(f"DEBUG Exception: {exc}")
-                    return _result(f"Failed to search YouTube: {exc}")
-                if not results:
-                    LAST_RESULTS = []
-                    save_last_results([])
-                    return _result("No results found")
-
-                LAST_RESULTS = results
-                save_last_results(results)
-        
-                return {
-                    "result": f"YouTube results for '{query}'. Say which to play.",
-                    "options": [result["title"] for result in results],
-                }
-
-            webbrowser.open("https://www.youtube.com")
-            _bring_window_to_front(["youtube", "edge", "chrome"])
-            return _result("YouTube opened.")
-
-        # ─────────────────────────────────────────
         # 🔍 GOOGLE SEARCH
-        # Only reached if NOT a project command
         # ─────────────────────────────────────────
 
         elif "search" in normalized_command:
             query = raw_command.lower().replace("search", "").strip()
-
             noise_phrases = [
                 "on chrome", "on google", "in chrome", "in google",
                 "in browser", "on browser", "using chrome", "using google",
@@ -756,15 +624,12 @@ def execute_command(command: str):
             ]
             for phrase in noise_phrases:
                 query = query.replace(phrase, "").strip()
-
             query = " ".join(query.split()).strip()
-
             if query:
                 url = f"https://www.google.com/search?q={quote_plus(query)}"
                 webbrowser.open(url)
                 _bring_window_to_front(["chrome", "edge", "google"])
                 return _result(f"Searching Google for '{query}'.")
-
             webbrowser.open("https://www.google.com")
             _bring_window_to_front(["chrome", "edge"])
             return _result("Google opened.")
@@ -818,7 +683,7 @@ def execute_command(command: str):
                 x, y = int(nums[0]), int(nums[1])
                 pyautogui.moveTo(x, y)
                 return _result(f"Cursor moved to ({x}, {y}).")
-            return _result("Could not parse coordinates. Say 'move cursor to 500 300'.")
+            return _result("Could not parse coordinates.")
 
         elif "click at" in normalized_command:
             nums = re.findall(r"\d+", raw_command)
@@ -826,7 +691,7 @@ def execute_command(command: str):
                 x, y = int(nums[0]), int(nums[1])
                 pyautogui.click(x, y)
                 return _result(f"Clicked at ({x}, {y}).")
-            return _result("Could not parse coordinates. Say 'click at 500 300'.")
+            return _result("Could not parse coordinates.")
 
         elif "double click" in normalized_command:
             pyautogui.doubleClick()
@@ -989,10 +854,7 @@ def execute_command(command: str):
             folder_path = os.path.join(os.path.expanduser("~"), "Desktop", "TodayWork")
             os.makedirs(folder_path, exist_ok=True)
             _bring_window_to_front(["visual studio code", "vscode"])
-            return _result(
-                "Coding session started. "
-                "VS Code and Chrome opened, TodayWork folder created."
-            )
+            return _result("Coding session started. VS Code and Chrome opened, TodayWork folder created.")
 
         # ─────────────────────────────────────────
         # 🎵 MUSIC
