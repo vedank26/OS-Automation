@@ -1,220 +1,14 @@
+import json
 import os
-import re
 import subprocess
 import time
-import webbrowser
-import json
 from dotenv import load_dotenv
 from groq import Groq
 
 load_dotenv()
 
 api_key = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=api_key)
-
-
-def _check_windows_terminal():
-    """Check if Windows Terminal (wt) is available"""
-    try:
-        result = subprocess.run(
-            ["wt", "--version"],
-            capture_output=True,
-            timeout=2
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
-
-
-def _format_code(content: str, file_ext: str) -> str:
-    """
-    Basic formatter to ensure code is not minified.
-    Adds line breaks if code appears to be on one line.
-    """
-    lines = content.strip().split('\n')
-    
-    if len(lines) <= 3 and len(content) > 200:
-        if file_ext in [".html"]:
-            content = content.replace('><', '>\n<')
-            content = content.replace('> <', '>\n<')
-            lines = content.split('\n')
-            formatted = []
-            indent = 0
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('</') or line.startswith('/>'):
-                    indent = max(0, indent - 1)
-                formatted.append('  ' * indent + line)
-                if (line.startswith('<') and 
-                    not line.startswith('</') and 
-                    not line.startswith('<!') and
-                    not line.endswith('/>') and
-                    not '/>' in line):
-                    indent += 1
-            return '\n'.join(formatted)
-        
-        elif file_ext in [".css"]:
-            content = content.replace('{', '{\n  ')
-            content = content.replace(';', ';\n  ')
-            content = content.replace('}', '\n}\n')
-            return content
-        
-        elif file_ext in [".js", ".jsx"]:
-            content = content.replace('{', '{\n  ')
-            content = content.replace('}', '\n}')
-            content = content.replace(';', ';\n')
-            return content
-    
-    return content
-
-
-def _auto_run_project(project_path: str, project_type: str):
-    project_type = project_type.lower().strip()
-
-    if project_type in ["react", "vite"]:
-        
-        # Detect CRA vs Vite
-        package_json_path = os.path.join(
-            project_path, "package.json"
-        )
-        run_script = "start"
-        
-        try:
-            with open(package_json_path, "r") as f:
-                pkg = json.load(f)
-            scripts = pkg.get("scripts", {})
-            if "dev" in scripts:
-                run_script = "dev"
-            elif "start" in scripts:
-                run_script = "start"
-        except Exception:
-            run_script = "start"
-
-        port = "5173" if run_script == "dev" else "3000"
-
-        # Open VS Code with project AND run command
-        # in VS Code integrated terminal
-        vscode_cmd = (
-            f'code "{project_path}" '
-            f'--new-window'
-        )
-        subprocess.Popen(vscode_cmd, shell=True)
-        time.sleep(3)
-
-        # Use VS Code CLI to run command in integrated terminal
-        terminal_cmd = (
-            f'cd /d "{project_path}" '
-            f'&& npm install '
-            f'&& npm run {run_script}'
-        )
-        # Open new VS Code terminal with command
-        subprocess.Popen(
-            f'code "{project_path}" --new-window',
-            shell=True
-        )
-        time.sleep(2)
-        # Run in VS Code terminal using workspace
-        subprocess.Popen(
-            f'wt -d "{project_path}" cmd /k "{terminal_cmd}"'
-            if _check_windows_terminal()
-            else f'start cmd /k "{terminal_cmd}"',
-            shell=True
-        )
-
-        return f"🚀 React app starting on http://localhost:{port}"
-
-    elif project_type in ["python", "py", "pygame"]:
-        main_py = os.path.join(project_path, "main.py")
-        imports_to_install = []
-
-        stdlib = {
-            "os","sys","re","time","math","random","json",
-            "datetime","pathlib","collections","itertools",
-            "functools","string","io","subprocess","threading",
-            "urllib","http","sqlite3","csv","logging",
-            "unittest","abc","copy","typing","enum","tkinter"
-        }
-
-        try:
-            with open(main_py, "r") as f:
-                content = f.read()
-            found = re.findall(
-                r'^(?:import|from)\s+(\w+)',
-                content, re.MULTILINE
-            )
-            imports_to_install = [
-                m for m in found if m not in stdlib
-            ]
-        except Exception:
-            pass
-
-        if imports_to_install:
-            pkg_list = " ".join(imports_to_install)
-            terminal_cmd = (
-                f'cd /d "{project_path}" '
-                f'&& echo Installing: {pkg_list}... '
-                f'&& pip install {pkg_list} '
-                f'&& echo Running... '
-                f'&& python main.py'
-            )
-        else:
-            terminal_cmd = (
-                f'cd /d "{project_path}" '
-                f'&& python main.py'
-            )
-
-        # Try Windows Terminal first, fallback to CMD
-        if _check_windows_terminal():
-            subprocess.Popen(
-                f'wt -d "{project_path}" cmd /k "{terminal_cmd}"',
-                shell=True
-            )
-        else:
-            subprocess.Popen(
-                f'start cmd /k "{terminal_cmd}"',
-                shell=True
-            )
-
-        return "🐍 Python app running in terminal"
-
-    elif project_type in ["flask"]:
-        terminal_cmd = (
-            f'cd /d "{project_path}" '
-            f'&& pip install flask '
-            f'&& python app.py'
-        )
-        if _check_windows_terminal():
-            subprocess.Popen(
-                f'wt -d "{project_path}" cmd /k "{terminal_cmd}"',
-                shell=True
-            )
-        else:
-            subprocess.Popen(
-                f'start cmd /k "{terminal_cmd}"',
-                shell=True
-            )
-        return "🌐 Flask app on http://localhost:5000"
-
-    elif project_type in ["html", "css", "javascript", "js"]:
-        index = os.path.join(project_path, "index.html")
-        if os.path.exists(index):
-            webbrowser.open(f"file:///{index}")
-        return "🌐 HTML project opened in browser"
-
-    else:
-        if _check_windows_terminal():
-            subprocess.Popen(
-                f'wt -d "{project_path}"',
-                shell=True
-            )
-        else:
-            subprocess.Popen(
-                f'start cmd /k "cd /d "{project_path}""',
-                shell=True
-            )
-        return "📂 Project terminal opened"
+client = Groq(api_key=api_key) if api_key else None
 
 
 def create_ai_project(project_description: str, project_name: str = None):
@@ -225,6 +19,9 @@ def create_ai_project(project_description: str, project_name: str = None):
     3. Writes AI-generated code
     4. Opens the project in VS Code
     """
+
+    if not client:
+        return "❌ Groq API key is missing. Please add GROQ_API_KEY to your .env file in the backend folder."
 
     try:
         prompt = f"""You are a project generator. Create a JSON response for: {project_description}
@@ -250,45 +47,7 @@ Rules:
 - For react: include package.json, src/App.js, src/index.js, public/index.html
 - For html: include index.html, style.css, script.js
 
-CRITICAL FORMATTING RULES — YOU MUST FOLLOW:
-1. ALL code must be properly formatted with indentation
-2. NEVER put code on a single line
-3. HTML files must have proper line breaks after every tag
-4. Python files must have proper indentation (4 spaces)
-5. JavaScript files must have proper formatting
-6. CSS files must have each property on its own line
-7. Every opening tag gets its own line
-8. Every closing tag gets its own line
-9. Nested elements must be indented
-10. Use 2 spaces for HTML/CSS/JS indentation
-11. Use 4 spaces for Python indentation
-12. Add blank lines between logical sections
-13. NEVER minify or compress code
-14. Code must be readable by a human
-
-BAD EXAMPLE (never do this):
-<!DOCTYPE html><html><head><title>App</title></head><body><h1>Hello</h1></body></html>
-
-GOOD EXAMPLE (always do this):
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>App</title>
-  </head>
-  <body>
-    <h1>Hello</h1>
-  </body>
-</html>
-
-CRITICAL: Your response must START with {{ and END with }}. Nothing else.
-
-IMPORTANT: Format all code properly with:
-- Each HTML tag on its own line
-- Proper indentation throughout  
-- No minification
-- Human-readable output
-- Separate lines for each CSS property
-- Proper JS formatting with line breaks"""
+CRITICAL: Your response must START with {{ and END with }}. Nothing else."""
 
         print("🤖 AI is analyzing your project idea...")
 
@@ -352,11 +111,8 @@ IMPORTANT: Format all code properly with:
             if parent_dir and parent_dir != project_path:
                 os.makedirs(parent_dir, exist_ok=True)
 
-            ext = os.path.splitext(file_path)[1]
-            formatted_content = _format_code(content, ext)
-
             with open(full_path, "w", encoding="utf-8") as f:
-                f.write(formatted_content)
+                f.write(content)
 
             created_files.append(file_path)
             print(f"   ✅ Created: {file_path}")
@@ -364,19 +120,9 @@ IMPORTANT: Format all code properly with:
         if not created_files:
             return "❌ No files were created. AI response might be invalid."
 
-        # Open project in VS Code (already handled in _auto_run_project if needed, but safe here too)
-        # Actually, let _auto_run_project handle opening the project if it's React,
-        # but for other projects, we want it open too.
-        # Wait, the user's prompt says:
-        # "Inside create_ai_project(), after VS Code opens, make sure it looks like this:"
-        # "subprocess.Popen(f'code \"{project_path}\"', shell=True)"
-        # So I will keep this here exactly.
+        # Open project in VS Code
         time.sleep(0.5)
         subprocess.Popen(f'code "{project_path}"', shell=True)
-
-        wait_time = 2
-        time.sleep(wait_time)
-        run_result = _auto_run_project(project_path, project_data.get("project_type", "unknown"))
 
         time.sleep(1)
         try:
@@ -392,12 +138,11 @@ IMPORTANT: Format all code properly with:
             files_summary += f" + {len(created_files) - 5} more"
 
         return (
-            f"✅ Project Created: '{final_project_name}'\n"
-            f"📁 Type: {project_data.get('project_type', 'N/A')}\n"
+            f"✅ AI Project Created: '{final_project_name}'\n"
+            f"📂 Type: {project_data.get('project_type', 'N/A')}\n"
             f"📝 Files: {files_summary}\n"
-            f"🖥️ Opened in VS Code\n"
-            f"📍 Location: Desktop/{final_project_name}\n"
-            f"{run_result}"
+            f"💻 Opened in VS Code\n"
+            f"📍 Location: Desktop/{final_project_name}"
         )
 
     except json.JSONDecodeError as e:
