@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from automation import execute_command
+from assignment_solver import is_assignment_command, solve_assignment
 
 app = FastAPI()
 
@@ -23,10 +24,18 @@ def home():
 @app.post("/execute")
 async def execute(cmd: Command):
     """
-    Run execute_command in a thread pool so long-running operations
-    (e.g. npm install during React project creation) don't block the
-    event loop or time out the HTTP connection.
+    Run commands in a thread pool so long-running operations don't block
+    the event loop or time out the HTTP connection.
+
+    Assignment commands are handled by assignment_solver BEFORE reaching
+    automation.py — keeping automation.py completely untouched.
     """
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, execute_command, cmd.text)
+
+    if is_assignment_command(cmd.text):
+        # Route to assignment solver — never touches automation.py
+        result = await loop.run_in_executor(None, solve_assignment, cmd.text)
+    else:
+        result = await loop.run_in_executor(None, execute_command, cmd.text)
+
     return {"result": result}

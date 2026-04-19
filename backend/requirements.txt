@@ -5,3 +5,6 @@ requests==2.31.0
 pygetwindow==0.0.9
 groq
 python-dotenv
+python-docx
+PyMuPDF
+openpyxl
