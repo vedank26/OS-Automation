@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 import '../models/log_entry.dart';
 import '../services/api_service.dart';
 import '../widgets/terminal_log.dart';
@@ -14,8 +13,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  // ── controllers & state ─────────────────────────────────────────
+class _HomeScreenState extends State<HomeScreen>
+    with TickerProviderStateMixin {
   final TextEditingController _inputCtrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollCtrl = ScrollController();
@@ -25,23 +24,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isConnected = false;
   bool _isListening = false;
 
-  // ── speech ──────────────────────────────────────────────────────
-  final SpeechToText _speech = SpeechToText();
-  bool _speechAvailable = false;
-  Timer? _silenceTimer;
+  // Voice mode OFF by default → starts only when user clicks mic
+  bool _voiceMode = false;
 
-  // ── connection retry ────────────────────────────────────────────
   Timer? _retryTimer;
-
-  // ── clock ticker ────────────────────────────────────────────────
   Timer? _clockTimer;
   String _clockStr = '';
 
-  // ── top bar glow animation ──────────────────────────────────────
   late final AnimationController _glowCtrl;
   late final Animation<double> _glowAnim;
 
-  // ────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
@@ -50,17 +42,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     )..repeat(reverse: true);
-    _glowAnim =
-        Tween<double>(begin: 0.4, end: 1.0).animate(_glowCtrl);
+
+    _glowAnim = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(_glowCtrl);
 
     _updateClock();
-    _clockTimer =
-        Timer.periodic(const Duration(seconds: 1), (_) => _updateClock());
 
-    _initSpeech();
+    _clockTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateClock(),
+    );
+
     _checkConnection(isStartup: true);
-    _retryTimer =
-        Timer.periodic(const Duration(seconds: 5), (_) => _retryIfNeeded());
+
+    _retryTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _retryIfNeeded(),
+    );
   }
 
   @override
@@ -69,16 +69,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _inputCtrl.dispose();
     _focusNode.dispose();
     _scrollCtrl.dispose();
-    _silenceTimer?.cancel();
     _retryTimer?.cancel();
     _clockTimer?.cancel();
     super.dispose();
   }
 
-  // ── helpers ─────────────────────────────────────────────────────
-
   void _updateClock() {
     final now = DateTime.now();
+
     setState(() {
       _clockStr =
           '${now.hour.toString().padLeft(2, '0')}:'
@@ -88,8 +86,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _addLog(LogType type, String message) {
-    setState(() => _logs.add(LogEntry.now(type: type, message: message)));
-    Future.delayed(const Duration(milliseconds: 60), _scrollToBottom);
+    setState(() {
+      _logs.add(
+        LogEntry.now(
+          type: type,
+          message: message,
+        ),
+      );
+    });
+
+    Future.delayed(
+      const Duration(milliseconds: 60),
+      _scrollToBottom,
+    );
   }
 
   void _scrollToBottom() {
@@ -102,113 +111,116 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ── connection ──────────────────────────────────────────────────
-
   Future<void> _checkConnection({bool isStartup = false}) async {
     final ok = await ApiService.checkConnection();
     final wasConnected = _isConnected;
-    setState(() => _isConnected = ok);
+
+    setState(() {
+      _isConnected = ok;
+    });
 
     if (isStartup) {
       _addLog(LogType.sys, '⚡ FlowForge AI initialized');
+
       if (ok) {
-        _addLog(LogType.success,
-            '🔗 Backend connected at 127.0.0.1:8000');
-        _addLog(LogType.sys,
-            '💬 Type or speak a command to begin');
+        _addLog(
+          LogType.success,
+          '🔗 Backend connected at 127.0.0.1:8000',
+        );
+
+        // Changed message → no auto listening
+        _addLog(
+          LogType.sys,
+          '🎤 Tap mic button to start voice mode',
+        );
       } else {
-        _addLog(LogType.error,
-            '🔴 Backend not reachable — retrying every 5 s...');
-      }
-    } else if (ok && !wasConnected) {
-      // Reconnected
-      _addLog(LogType.success, '✅ Backend reconnected');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              '✅ Backend reconnected',
-              style: TextStyle(fontFamily: 'monospace'),
-            ),
-            backgroundColor: AppColors.successGreen.withValues(alpha: 0.85),
-            duration: const Duration(seconds: 2),
-          ),
+        _addLog(
+          LogType.error,
+          '🔴 Backend not reachable — retrying...',
         );
       }
+    } else if (ok && !wasConnected) {
+      _addLog(
+        LogType.success,
+        '✅ Backend reconnected',
+      );
     }
   }
 
   void _retryIfNeeded() {
-    if (!_isConnected) _checkConnection();
+    if (!_isConnected) {
+      _checkConnection();
+    }
   }
 
-  // ── speech ──────────────────────────────────────────────────────
-
-  Future<void> _initSpeech() async {
-    try {
-      _speechAvailable = await _speech.initialize(
-        onError: (_) => _stopListening(),
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            _stopListening();
-          }
-        },
-      );
-    } catch (e) {
-      // Speech to text not available on this platform (e.g., Windows)
-      _speechAvailable = false;
-    }
-    setState(() {});
-  }
-
-  Future<void> _toggleMic() async {
-    if (_isListening) {
-      _stopListening();
+  // Starts backend listening ONLY after mic click
+  Future<void> _startListening() async {
+    if (_isListening ||
+        _isProcessing ||
+        !_isConnected ||
+        !_voiceMode) {
       return;
     }
-    if (!_speechAvailable) {
-      _addLog(LogType.error,
-          '🎤 Speech recognition not available on this device');
-      return;
-    }
+
     setState(() {
       _isListening = true;
       _inputCtrl.clear();
     });
 
-    await _speech.listen(
-      onResult: (result) {
-        setState(() => _inputCtrl.text = result.recognizedWords);
-        // Reset silence timer on every new word
-        _silenceTimer?.cancel();
-        _silenceTimer = Timer(const Duration(milliseconds: 1500), () {
-          _stopListening();
-          if (_inputCtrl.text.trim().isNotEmpty) {
-            _sendCommand(_inputCtrl.text.trim());
-          }
-        });
-      },
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
-      listenOptions: SpeechListenOptions(
-        partialResults: true,
-        cancelOnError: true,
-        listenMode: ListenMode.confirmation,
-      ),
-    );
-  }
+    _addLog(LogType.sys, '🎤 Listening...');
 
-  void _stopListening() {
-    _speech.stop();
-    _silenceTimer?.cancel();
-    setState(() => _isListening = false);
-  }
+    final response = await ApiService.listenAndExecute();
 
-  // ── command execution ────────────────────────────────────────────
+    final heard = response["heard"] ?? "";
+    final result = response["result"] ?? "No response";
+    final options = response["options"] ?? [];
+
+    setState(() {
+      _isListening = false;
+    });
+
+    if (heard.isEmpty) {
+      _addLog(
+        LogType.sys,
+        '⏳ Nothing heard. Tap mic again to listen.',
+      );
+    } else {
+      _addLog(LogType.cmd, '\$ $heard');
+
+      final isError =
+          result.toLowerCase().contains('not recognized') ||
+              result.toLowerCase().contains('error') ||
+              result.toLowerCase().startsWith('error:');
+
+      _addLog(
+        isError ? LogType.error : LogType.success,
+        result,
+      );
+
+      if (options.isNotEmpty) {
+        for (int i = 0; i < options.length; i++) {
+          _addLog(
+            LogType.sys,
+            '  ${i + 1}. ${options[i]}',
+          );
+        }
+
+        _addLog(
+          LogType.sys,
+          "👉 Say 'play 1', 'play 2'... to play",
+        );
+      }
+    }
+
+    // Removed auto restart
+  }
 
   Future<void> _sendCommand(String cmd) async {
     cmd = cmd.trim();
-    if (cmd.isEmpty || _isProcessing || !_isConnected) return;
+
+    if (cmd.isEmpty || _isProcessing || !_isConnected) {
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
@@ -218,40 +230,67 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _addLog(LogType.cmd, '\$ $cmd');
     _addLog(LogType.sys, 'Executing command...');
 
-    bool isProjectCommand = 
-      cmd.contains("create") || 
-      cmd.contains("build") || 
-      cmd.contains("make");
-
-    if (isProjectCommand) {
-      _addLog(LogType.sys, "⏳ Creating project... this may take 30-60 seconds. Please wait.");
-    }
-
     final response = await ApiService.sendCommand(cmd);
-    
+
     String result = response["result"] ?? "No response";
     List options = response["options"] ?? [];
 
-    final isError = result.toLowerCase().contains('not recognized') ||
-        result.toLowerCase().contains('error') ||
-        result.toLowerCase().startsWith('error:');
+    final isError =
+        result.toLowerCase().contains('not recognized') ||
+            result.toLowerCase().contains('error') ||
+            result.toLowerCase().startsWith('error:');
 
-    _addLog(isError ? LogType.error : LogType.success, result);
+    _addLog(
+      isError ? LogType.error : LogType.success,
+      result,
+    );
 
     if (options.isNotEmpty) {
       for (int i = 0; i < options.length; i++) {
-        _addLog(LogType.sys, '  ${i + 1}. ${options[i]}');
+        _addLog(
+          LogType.sys,
+          '  ${i + 1}. ${options[i]}',
+        );
       }
-      _addLog(LogType.sys, "👉 Say 'play 1', 'play 2'... to play");
+
+      _addLog(
+        LogType.sys,
+        "👉 Say 'play 1', 'play 2'... to play",
+      );
     }
 
-    setState(() => _isProcessing = false);
+    setState(() {
+      _isProcessing = false;
+    });
+
     _focusNode.requestFocus();
   }
 
-  // ────────────────────────────────────────────────────────────────
-  // BUILD
-  // ────────────────────────────────────────────────────────────────
+  // Mic button controls listening manually
+  Future<void> _toggleMic() async {
+    if (_isListening) {
+      setState(() {
+        _isListening = false;
+        _voiceMode = false;
+      });
+
+      _addLog(
+        LogType.sys,
+        '🔇 Voice mode stopped',
+      );
+    } else {
+      setState(() {
+        _voiceMode = true;
+      });
+
+      _addLog(
+        LogType.sys,
+        '🎤 Voice mode started',
+      );
+
+      _startListening();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -261,13 +300,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Column(
           children: [
             _buildTopBar(),
+
             Expanded(
               child: TerminalLog(
                 logs: _logs,
                 scrollController: _scrollCtrl,
               ),
             ),
-            QuickCommands(onCommand: _sendCommand),
+
+            QuickCommands(
+              onCommand: _sendCommand,
+            ),
+
             CommandInput(
               controller: _inputCtrl,
               focusNode: _focusNode,
@@ -283,33 +327,40 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ── Top bar ─────────────────────────────────────────────────────
-
   Widget _buildTopBar() {
     return AnimatedBuilder(
       animation: _glowAnim,
       builder: (_, __) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         decoration: BoxDecoration(
           color: AppColors.surface,
           border: const Border(
-              bottom: BorderSide(color: AppColors.border)),
+            bottom: BorderSide(
+              color: AppColors.border,
+            ),
+          ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.accentBlue
-                  .withValues(alpha: 0.06 * _glowAnim.value),
+              color: AppColors.accentBlue.withValues(
+                alpha: 0.06 * _glowAnim.value,
+              ),
               blurRadius: 12,
             ),
           ],
         ),
         child: Row(
           children: [
-            // ── Brand ───────────────────────────────────────────
-            _glowingDot(_isConnected
-                ? AppColors.successGreen
-                : AppColors.errorRed),
+            _glowingDot(
+              _isConnected
+                  ? AppColors.successGreen
+                  : AppColors.errorRed,
+            ),
+
             const SizedBox(width: 10),
+
             const Text(
               '⚡ FlowForge AI',
               style: TextStyle(
@@ -320,22 +371,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 letterSpacing: 1.2,
               ),
             ),
+
             const Spacer(),
-            // ── Connection status ───────────────────────────────
+
             _statusPill(
-              _isConnected ? '🟢 Connected' : '🔴 Disconnected',
+              _isListening
+                  ? '🎤 Listening'
+                  : _voiceMode
+                      ? '🎤 Voice On'
+                      : '🔇 Voice Off',
+              _voiceMode
+                  ? AppColors.successGreen
+                  : AppColors.textSecondary,
+            ),
+
+            const SizedBox(width: 8),
+
+            _statusPill(
+              _isConnected
+                  ? '🟢 Connected'
+                  : '🔴 Disconnected',
               _isConnected
                   ? AppColors.successGreen
                   : AppColors.errorRed,
             ),
+
             const SizedBox(width: 10),
-            // ── Clock ───────────────────────────────────────────
+
             Text(
               _clockStr,
               style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 11,
-                color: AppColors.textSecondary.withValues(alpha: 0.7),
+                color: AppColors.textSecondary.withValues(
+                  alpha: 0.7,
+                ),
               ),
             ),
           ],
@@ -355,7 +425,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           color: color,
           boxShadow: [
             BoxShadow(
-              color: color.withValues(alpha: 0.6 * _glowAnim.value),
+              color: color.withValues(
+                alpha: 0.6 * _glowAnim.value,
+              ),
               blurRadius: 8,
               spreadRadius: 1,
             ),
@@ -367,12 +439,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _statusPill(String label, Color color) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 3,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(4),
         color: color.withValues(alpha: 0.1),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
+        border: Border.all(
+          color: color.withValues(alpha: 0.35),
+        ),
       ),
       child: Text(
         label,
