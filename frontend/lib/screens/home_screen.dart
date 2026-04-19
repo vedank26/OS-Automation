@@ -229,12 +229,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     final response = await ApiService.sendCommand(cmd);
     
-    String result = response["result"] ?? "No response";
+    String result = response["result"]?.toString() ?? "No response";
     List options = response["options"] ?? [];
+
+    // ── ADD THIS BLOCK — show AI interpretation ──────────
+    String interpreted = response["interpreted"]?.toString() ?? "";
+    String original = response["original"]?.toString() ?? "";
+
+    if (interpreted.isNotEmpty &&
+        interpreted != original &&
+        interpreted.toLowerCase() != cmd.toLowerCase()) {
+      _addLog(
+        LogType.ai,
+        '🤖 AI: "${cmd}" → "${interpreted}"',
+      );
+    }
+    // ── END AI BLOCK ─────────────────────────────────────
 
     final isError = result.toLowerCase().contains('not recognized') ||
         result.toLowerCase().contains('error') ||
-        result.toLowerCase().startsWith('error:');
+        result.toLowerCase().startsWith('error:') ||
+        result.toLowerCase().contains('❌');
 
     _addLog(isError ? LogType.error : LogType.success, result);
 

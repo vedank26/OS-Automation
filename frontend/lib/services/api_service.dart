@@ -20,7 +20,7 @@ class ApiService {
   static Future<Map<String, dynamic>> sendCommand(String text) async {
     try {
       final response = await http.post(
-        Uri.parse("$baseUrl/execute"),
+        Uri.parse("$baseUrl/smart-execute"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"text": text}),
       ).timeout(const Duration(seconds: 120));
