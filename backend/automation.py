@@ -3,6 +3,7 @@ import re
 import subprocess
 import time
 import webbrowser
+import json
 from urllib.parse import quote_plus
 
 import pyautogui
@@ -347,6 +348,266 @@ def execute_command(command: str):
                 "Example: 'create calculator project using python'\n"
                 "Example: 'build attendance tracker using html css js'"
             )
+
+        # ─────────────────────────────────────────
+        # 🚀 RUN PROJECT
+        # ─────────────────────────────────────────
+        # Commands:
+        # "run project"
+        # "run the project"
+        # "execute project"
+        # "start project"
+        # "run my project"
+        # "npm run dev"
+        # "run python project"
+        # "start the app"
+
+        elif any(phrase in normalized_command for phrase in [
+            "run project",
+            "run the project", 
+            "execute project",
+            "start project",
+            "run my project",
+            "start the app",
+            "start app",
+            "npm run dev",
+            "run app",
+            "execute my project",
+            "run this project",
+            "execute the project",
+            "launch project",
+            "launch the project",
+            "launch app",
+            "run the app",
+            "start my project",
+        ]):
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+
+            try:
+                # Get all folders sorted by creation time (newest first)
+                folders = [
+                    f for f in os.listdir(desktop)
+                    if os.path.isdir(os.path.join(desktop, f))
+                ]
+                folders.sort(
+                    key=lambda f: os.path.getctime(
+                        os.path.join(desktop, f)
+                    ),
+                    reverse=True
+                )
+
+                if not folders:
+                    return _result("❌ No projects found on Desktop")
+
+                latest_project = os.path.join(desktop, folders[0])
+                project_name = folders[0]
+                files_in_project = os.listdir(latest_project)
+
+                # ─────────────────────────────────────────
+                # React / Vite project
+                # ─────────────────────────────────────────
+                if "package.json" in files_in_project:
+                    
+                    # Check if it's Vite/React
+                    src_exists = os.path.exists(
+                        os.path.join(latest_project, "src")
+                    )
+                    
+                    if src_exists:
+                        # Detect CRA vs Vite by reading package.json
+                        package_json_path = os.path.join(
+                            latest_project, "package.json"
+                        )
+                        run_script = "start"  # default CRA
+
+                        try:
+                            with open(package_json_path, "r") as f:
+                                pkg = json.load(f)
+                            scripts = pkg.get("scripts", {})
+                            if "dev" in scripts:
+                                run_script = "dev"
+                            elif "start" in scripts:
+                                run_script = "start"
+                        except Exception:
+                            run_script = "start"
+
+                        run_cmd = (
+                            f'cd /d "{latest_project}" '
+                            f'&& echo Installing dependencies... '
+                            f'&& npm install '
+                            f'&& echo Starting app... '
+                            f'&& npm run {run_script}'
+                        )
+                        subprocess.Popen(
+                            f'start cmd /k "{run_cmd}"',
+                            shell=True
+                        )
+                        _bring_window_to_front(["cmd", "command prompt"])
+                        
+                        port = "5173" if run_script == "dev" else "3000"
+                        return _result(
+                            f"🚀 Running '{project_name}'\n"
+                            f"📦 Installing dependencies...\n"
+                            f"🌐 Will open on http://localhost:{port}"
+                        )
+
+                    else:
+                        # Pure Node.js project
+                        run_cmd = (
+                            f'cd /d "{latest_project}" '
+                            f'&& npm install '
+                            f'&& node index.js'
+                        )
+                        subprocess.Popen(
+                            f'start cmd /k "{run_cmd}"',
+                            shell=True
+                        )
+                        _bring_window_to_front(["cmd", "command prompt"])
+                        return _result(
+                            f"🚀 Running '{project_name}' — Node.js app"
+                        )
+
+                # ─────────────────────────────────────────
+                # Python project — AUTO INSTALL DEPS
+                # ─────────────────────────────────────────
+                elif "main.py" in files_in_project:
+                    
+                    # Read main.py to find imports
+                    main_py_path = os.path.join(latest_project, "main.py")
+                    imports_to_install = []
+                    
+                    try:
+                        with open(main_py_path, "r") as f:
+                            content = f.read()
+                        
+                        # Find all import statements
+                        import_lines = re.findall(
+                            r'^(?:import|from)\s+(\w+)', 
+                            content, 
+                            re.MULTILINE
+                        )
+                        
+                        # Standard library modules — skip these
+                        stdlib_modules = {
+                            "os", "sys", "re", "time", "math", "random",
+                            "json", "datetime", "pathlib", "collections",
+                            "itertools", "functools", "string", "io",
+                            "subprocess", "threading", "multiprocessing",
+                            "urllib", "http", "email", "html", "xml",
+                            "sqlite3", "csv", "logging", "unittest",
+                            "abc", "copy", "gc", "inspect", "types",
+                            "typing", "enum", "dataclasses", "contextlib",
+                            "warnings", "traceback", "pprint", "textwrap"
+                        }
+                        
+                        # Third party modules that need pip install
+                        for module in import_lines:
+                            if module not in stdlib_modules:
+                                imports_to_install.append(module)
+                                
+                    except Exception:
+                        pass
+                    
+                    # Build the run command
+                    if imports_to_install:
+                        # Install all detected packages first
+                        install_list = " ".join(imports_to_install)
+                        run_cmd = (
+                            f'cd /d "{latest_project}" '
+                            f'&& echo Installing dependencies: {install_list}... '
+                            f'&& pip install {install_list} '
+                            f'&& echo Running project... '
+                            f'&& python main.py'
+                        )
+                        dep_msg = f"📦 Installing: {install_list}"
+                    else:
+                        run_cmd = (
+                            f'cd /d "{latest_project}" '
+                            f'&& echo Running project... '
+                            f'&& python main.py'
+                        )
+                        dep_msg = "▶️ Running directly"
+                    
+                    subprocess.Popen(
+                        f'start cmd /k "{run_cmd}"',
+                        shell=True
+                    )
+                    _bring_window_to_front(["cmd", "command prompt"])
+                    return _result(
+                        f"🐍 Running '{project_name}'\n"
+                        f"{dep_msg}\n"
+                        f"📺 Check the terminal window for output"
+                    )
+
+                # ─────────────────────────────────────────
+                # Flask project
+                # ─────────────────────────────────────────
+                elif "app.py" in files_in_project:
+                    run_cmd = (
+                        f'cd /d "{latest_project}" '
+                        f'&& pip install flask '
+                        f'&& python app.py'
+                    )
+                    subprocess.Popen(
+                        f'start cmd /k "{run_cmd}"',
+                        shell=True
+                    )
+                    _bring_window_to_front(["cmd", "command prompt"])
+                    return _result(
+                        f"🌐 Running '{project_name}'\n"
+                        f"📦 Installing Flask...\n"
+                        f"🌐 Will open on http://localhost:5000"
+                    )
+
+                # ─────────────────────────────────────────
+                # Django project
+                # ─────────────────────────────────────────
+                elif "manage.py" in files_in_project:
+                    run_cmd = (
+                        f'cd /d "{latest_project}" '
+                        f'&& pip install django '
+                        f'&& python manage.py runserver'
+                    )
+                    subprocess.Popen(
+                        f'start cmd /k "{run_cmd}"',
+                        shell=True
+                    )
+                    _bring_window_to_front(["cmd", "command prompt"])
+                    return _result(
+                        f"🌐 Running '{project_name}'\n"
+                        f"🌐 Will open on http://localhost:8000"
+                    )
+
+                # ─────────────────────────────────────────
+                # HTML project
+                # ─────────────────────────────────────────
+                elif "index.html" in files_in_project:
+                    index_file = os.path.join(
+                        latest_project, "index.html"
+                    )
+                    webbrowser.open(f"file:///{index_file}")
+                    _bring_window_to_front([
+                        "chrome", "edge", "firefox"
+                    ])
+                    return _result(
+                        f"🌐 Opened '{project_name}' in browser ✅"
+                    )
+
+                # ─────────────────────────────────────────
+                # Unknown — open terminal in project folder
+                # ─────────────────────────────────────────
+                else:
+                    subprocess.Popen(
+                        f'start cmd /k "cd /d "{latest_project}" '
+                        f'&& echo Project folder opened. Run manually."',
+                        shell=True
+                    )
+                    return _result(
+                        f"📂 Opened terminal for '{project_name}'"
+                    )
+
+            except Exception as e:
+                return _result(f"❌ Could not run project: {str(e)}")
 
         # ─────────────────────────────────────────
         # ▶️ YOUTUBE

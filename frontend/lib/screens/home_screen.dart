@@ -218,6 +218,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _addLog(LogType.cmd, '\$ $cmd');
     _addLog(LogType.sys, 'Executing command...');
 
+    bool isProjectCommand = 
+      cmd.contains("create") || 
+      cmd.contains("build") || 
+      cmd.contains("make");
+
+    if (isProjectCommand) {
+      _addLog(LogType.sys, "⏳ Creating project... this may take 30-60 seconds. Please wait.");
+    }
+
     final response = await ApiService.sendCommand(cmd);
     
     String result = response["result"] ?? "No response";
