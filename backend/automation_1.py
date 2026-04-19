@@ -19,8 +19,16 @@ pyautogui.FAILSAFE = True
 
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/search"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-print("YouTube API Loaded:", YOUTUBE_API_KEY)
+if YOUTUBE_API_KEY:
+    print("YouTube API Loaded: Yes")
+else:
+    print("YouTube API Loaded: No")
+
+# YouTube search results stored temporarily in-memory (not saved to file)
 LAST_RESULTS = []
+
+def save_last_results(results):
+    pass
 
 FILLER_WORDS = {"on", "the", "a", "an", "in", "at"}
 
@@ -143,21 +151,47 @@ def play_video(index: int):
 
 
 def _get_video_index(command: str):
+    global LAST_RESULTS
+    cmd = command.strip().lower()
     word_map = {
-        "play 1": 0, "first": 0,  "1": 0,
-        "play 2": 1, "second": 1, "2": 1,
-        "play 3": 2, "third": 2,  "3": 2,
-        "play 4": 3, "fourth": 3, "4": 3,
-        "play 5": 4, "fifth": 4,  "5": 4,
+        "play 1": 0, "first": 0,  "1": 0, "one": 0, "option 1": 0, "option one": 0, "play option 1": 0,
+        "play 2": 1, "second": 1, "2": 1, "two": 1, "option 2": 1, "option two": 1, "play option 2": 1,
+        "play 3": 2, "third": 2,  "3": 2, "three": 2, "option 3": 2, "option three": 2, "play option 3": 2,
+        "play 4": 3, "fourth": 3, "4": 3, "four": 3, "option 4": 3, "option four": 3, "play option 4": 3,
+        "play 5": 4, "fifth": 4,  "5": 4, "five": 4, "option 5": 4, "option five": 4, "play option 5": 4,
     }
-    return word_map.get(command.strip())
+    
+    if cmd in word_map:
+        return word_map[cmd]
+        
+    if cmd.startswith("option "):
+        try: return int(cmd.split()[1]) - 1
+        except: pass
+        
+    if cmd.startswith("play option "):
+        try: return int(cmd.split()[2]) - 1
+        except: pass
+        
+    # Check if the command matches any of the video titles
+    if LAST_RESULTS:
+        # Check exact title match or if command is fully contained within the title
+        for idx, video in enumerate(LAST_RESULTS):
+            title = video.get("title", "").lower()
+            if cmd == title or (len(cmd) > 3 and cmd in title):
+                return idx
+        
+        # If they say "play <title>" and it matches
+        if cmd.startswith("play "):
+            play_query = cmd[5:].strip()
+            for idx, video in enumerate(LAST_RESULTS):
+                title = video.get("title", "").lower()
+                if play_query == title or (len(play_query) > 3 and play_query in title):
+                    return idx
+
+    return None
 
 
 def _extract_youtube_play_query(raw_command: str):
-    """
-    Extract the YouTube search query from a natural language command.
-    Strips all YouTube-related noise phrases and filler words.
-    """
     query = raw_command.lower()
 
     noise_phrases = [
@@ -172,20 +206,29 @@ def _extract_youtube_play_query(raw_command: str):
     for phrase in noise_phrases:
         query = query.replace(phrase, "").strip()
 
+    print(f"DEBUG after noise removal: '{query}'")  # ADD THIS
+
     if query.startswith("play "):
         query = query[5:].strip()
 
+    print(f"DEBUG after play removal: '{query}'")   # ADD THIS
+
     query = " ".join(w for w in query.split() if w.lower() not in FILLER_WORDS)
     query = " ".join(query.split()).strip()
+
+    print(f"DEBUG final query: '{query}'")           # ADD THIS
+
     return query if query else None
-
-
+ 
 def execute_command(command: str):
     global LAST_RESULTS
 
     try:
         raw_command = command.strip()
         normalized_command = raw_command.lower()
+
+        print(f"DEBUG normalized: '{normalized_command}'")  # ADD THIS
+        print(f"DEBUG has youtube: {'youtube' in normalized_command}")  # ADD THIS
 
         if not normalized_command:
             return _result("No command provided.")
@@ -227,13 +270,32 @@ def execute_command(command: str):
             index = _get_video_index(normalized_command)
             return play_video(index)
 
+        # Add this BEFORE the "youtube" elif block
         elif normalized_command.startswith("play ") and "youtube" not in normalized_command and not _is_project_command(normalized_command):
+    # Check if it's a number selection first
             try:
                 index = int(normalized_command.split()[1]) - 1
                 return play_video(index)
-            except Exception:
-                return _result("Invalid selection")
+            except (ValueError, IndexError):
+        # Not a number — treat as YouTube search
+                query = normalized_command[5:].strip()  # remove "play "
+                query = " ".join(w for w in query.split() if w.lower() not in FILLER_WORDS)
+                if query:
+                    try:
+                        results = search_youtube(query)
+                    except Exception as exc:
+                        LAST_RESULTS = []
+                        return _result(f"YouTube search failed: {exc}")
 
+                    if not results:
+                        LAST_RESULTS = []
+                        return _result("No results found")
+
+                    LAST_RESULTS = results
+                    return {
+                        "result": f"YouTube results for '{query}'. Say which to play.",
+                        "options": [result["title"] for result in results],
+                    }
         elif re.fullmatch(r"open\s+\d+", normalized_command):
             try:
                 index = int(normalized_command.split()[1]) - 1
@@ -342,7 +404,23 @@ def execute_command(command: str):
         elif _is_project_command(normalized_command):
             description, project_name = parse_create_command(raw_command)
             if description:
-                return _result(create_ai_project(description, project_name))
+                creation_result = create_ai_project(description, project_name)
+                
+                # Check for successful creation, then auto-run it
+                if "✅ AI Project Created" in creation_result:
+                    try:
+                        # Extract project name from the success message
+                        loc_line = [line for line in creation_result.split('\n') if "Location: Desktop/" in line]
+                        if loc_line:
+                            folder_name = loc_line[0].split("Desktop/")[1].strip()
+                            # Automatically run the newly created project
+                            run_result = execute_command(f"run {folder_name}")
+                            if isinstance(run_result, dict) and "result" in run_result:
+                                creation_result += "\n\n" + run_result["result"]
+                    except Exception:
+                        pass
+                        
+                return _result(creation_result)
             return _result(
                 "Please specify what to build.\n"
                 "Example: 'create calculator project using python'\n"
@@ -352,55 +430,63 @@ def execute_command(command: str):
         # ─────────────────────────────────────────
         # 🚀 RUN PROJECT
         # ─────────────────────────────────────────
-        # Commands:
-        # "run project"
-        # "run the project"
-        # "execute project"
-        # "start project"
-        # "run my project"
-        # "npm run dev"
-        # "run python project"
-        # "start the app"
-
-        elif any(phrase in normalized_command for phrase in [
-            "run project",
-            "run the project", 
-            "execute project",
-            "start project",
-            "run my project",
-            "start the app",
-            "start app",
-            "npm run dev",
-            "run app",
-            "execute my project",
-            "run this project",
-            "execute the project",
-            "launch project",
-            "launch the project",
-            "launch app",
-            "run the app",
-            "start my project",
-        ]):
+        elif (
+            any(phrase in normalized_command for phrase in [
+                "run project", "run the project", "execute project", "start project",
+                "run my project", "start the app", "start app", "npm run dev",
+                "run app", "execute my project", "run this project", "execute the project",
+                "launch project", "launch the project", "launch app", "run the app",
+                "start my project", "run latest project"
+            ])
+            or normalized_command.startswith("open ")
+            or normalized_command.startswith("run ")
+            or normalized_command.startswith("start ")
+        ):
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
 
             try:
-                # Get all folders sorted by creation time (newest first)
                 folders = [
                     f for f in os.listdir(desktop)
                     if os.path.isdir(os.path.join(desktop, f))
                 ]
-                folders.sort(
-                    key=lambda f: os.path.getctime(
-                        os.path.join(desktop, f)
-                    ),
-                    reverse=True
-                )
-
+                
                 if not folders:
                     return _result("❌ No projects found on Desktop")
 
-                latest_project = os.path.join(desktop, folders[0])
-                project_name = folders[0]
+                latest_project = None
+                project_name = None
+                target_requested = False
+                
+                # Check for specific project name, e.g. "open snake game"
+                generic_run = any(p == normalized_command.strip() for p in [
+                    "run project", "start project", "run app", "open project", "run my project"
+                ])
+                
+                if not generic_run:
+                    target_name = re.sub(r'^(open|run|start|launch|execute)\s+', '', normalized_command)
+                    target_name = target_name.replace("project", "").replace("app", "").replace("game", "").strip()
+                    if target_name:
+                        target_requested = True
+                        stripped_target = re.sub(r'[^a-z0-9]', '', target_name)
+                        if stripped_target:
+                            for folder in folders:
+                                stripped_folder = re.sub(r'[^a-zA-Z0-9]', '', folder.lower())
+                                if stripped_target in stripped_folder:
+                                    latest_project = os.path.join(desktop, folder)
+                                    project_name = folder
+                                    break
+
+                if not latest_project:
+                    if target_requested:
+                        return _result(f"❌ Could not find a project matching '{target_name}' on Desktop.")
+                        
+                    folders.sort(
+                        key=lambda f: os.path.getctime(os.path.join(desktop, f)),
+                        reverse=True
+                    )
+                    latest_project = os.path.join(desktop, folders[0])
+                    project_name = folders[0]
+
                 files_in_project = os.listdir(latest_project)
 
                 # ─────────────────────────────────────────
@@ -616,30 +702,36 @@ def execute_command(command: str):
 
         elif "youtube" in normalized_command or "yt" in normalized_command:
             query = _extract_youtube_play_query(raw_command)
+            print(f"DEBUG query value: '{query}'")        # ADD THIS
+            print(f"DEBUG query is None: {query is None}") # ADD THIS
+            print(f"DEBUG query bool: {bool(query)}")      # ADD THIS
             if query:
+                print("DEBUG entering search block")  # ADD THIS
                 try:
+                    print("DEBUG calling search_youtube")  # ADD THIS
                     results = search_youtube(query)
+                    print(f"DEBUG search results: {results}")
                 except requests.RequestException as exc:
                     LAST_RESULTS = []
+                    print(f"DEBUG RequestException: {exc}")
                     return _result(f"YouTube API request failed: {exc}")
                 except RuntimeError as exc:
                     LAST_RESULTS = []
+                    print(f"DEBUG RuntimeError: {exc}")
                     return _result(f"YouTube search is not available: {exc}")
                 except Exception as exc:
                     LAST_RESULTS = []
+                    print(f"DEBUG Exception type: {type(exc)}")  # ADD THIS
+                    print(f"DEBUG Exception: {exc}")
                     return _result(f"Failed to search YouTube: {exc}")
-
                 if not results:
                     LAST_RESULTS = []
+                    save_last_results([])
                     return _result("No results found")
 
                 LAST_RESULTS = results
-                url = (
-                    "https://www.youtube.com/results?search_query="
-                    f"{quote_plus(query)}"
-                )
-                webbrowser.open(url)
-                _bring_window_to_front(["youtube", "edge", "chrome"])
+                save_last_results(results)
+        
                 return {
                     "result": f"YouTube results for '{query}'. Say which to play.",
                     "options": [result["title"] for result in results],
